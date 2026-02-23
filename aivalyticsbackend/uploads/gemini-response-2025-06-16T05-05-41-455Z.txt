@@ -1,0 +1,44 @@
+=== GEMINI AI RESPONSE LOG ===
+Timestamp: 2025-06-16T05:05:41.455Z
+Content Length: 
+
+Programming Fundamentals 
+Hyesung Park, Na’el Abu-halaweh, Sonal S. Dekhane, Wei Jin, Robert Lutz, 
+Richard W. Price, Tacksoo Im 
+ 
+Table of Contents 
+1. Getting Started ........................................................................................................................ 9 
+1.1. Learning Outcomes ........................................................................................................ 9 
+1.2. Key Terms .............................................................
+Topics: computer fundamentals,creating arrays,linked list
+Number of Questions: 20
+Max Score: 100
+
+=== RAW GEMINI RESPONSE ===
+```json
+[
+  {"question": "Which of the following is NOT a core component of the von Neumann architecture, a fundamental model of computer architecture?", "options": ["Arithmetic Logic Unit (ALU)", "Central Processing Unit (CPU)", "Control Unit (CU)", "Optical Drive"], "correct_answer": 3, "explanation": "Optical drives are peripheral storage devices; the core components of the von Neumann architecture are the ALU, CPU, and CU.", "difficulty": "hard", "topic": "Computer Fundamentals"},
+  {"question": "In binary, what is the two's complement of 1011?", "options": ["0100", "0101", "1010", "1011"], "correct_answer": 0, "explanation": "The one's complement of 1011 is 0100. Adding 1 to this gives the two's complement, 0101.", "difficulty": "hard", "topic": "Computer Fundamentals"},
+  {"question": "What is the decimal equivalent of the binary number 1101101?", "options": ["109", "107", "105", "111"], "correct_answer": 1, "explanation": "1*64 + 1*32 + 0*16 + 1*8 + 1*4 + 0*2 + 1*1 = 109", "difficulty": "hard", "topic": "Computer Fundamentals"},
+  {"question": "What is an algorithm?", "options": ["A programming language", "A sequence of steps to solve a problem", "A type of data structure", "A specific computer hardware component"], "correct_answer": 1, "explanation": "An algorithm is a step-by-step procedure or formula for solving a problem.", "difficulty": "hard", "topic": "Computer Fundamentals"},
+  {"question": "How is an array typically implemented in memory?", "options": ["Randomly scattered memory locations", "Contiguous memory locations", "Linked list structure", "Using a hash table"], "correct_answer": 1, "explanation": "Arrays usually store elements in adjacent memory locations for efficient access.", "difficulty": "hard", "topic": "Creating Arrays"},
+  {"question": "What is the time complexity of accessing an element at a specific index in an array?", "options": ["O(n)", "O(log n)", "O(1)", "O(n^2)"], "correct_answer": 2, "explanation": "Accessing an array element by index is constant time because the memory address is directly calculated.", "difficulty": "hard", "topic": "Creating Arrays"},
+  {"question": "What is a significant disadvantage of using arrays compared to linked lists?", "options": ["Difficulty in inserting elements", "Difficulty in deleting elements", "Limited size determined at creation", "Higher memory consumption"], "correct_answer": 2, "explanation": "Arrays typically require a predefined size, making them inflexible for dynamic data.", "difficulty": "hard", "topic": "Creating Arrays"},
+  {"question": "Which of the following is NOT a common operation performed on a linked list?", "options": ["Insertion", "Deletion", "Random access by index", "Traversal"], "correct_answer": 2, "explanation": "Random access is inefficient in linked lists due to their sequential nature; you must traverse from the head.", "difficulty": "hard", "topic": "Linked List"},
+  {"question": "What is a doubly linked list?", "options": ["A linked list where each node points only to the next node", "A linked list where each node points to the previous and next nodes", "A linked list with nodes sorted in descending order", "A linked list with nodes stored in contiguous memory"], "correct_answer": 1, "explanation": "A doubly linked list provides bidirectional traversal.", "difficulty": "hard", "topic": "Linked List"},
+  {"question": "What is the space complexity of inserting a node at the beginning of a singly linked list?", "options": ["O(n)", "O(log n)", "O(1)", "O(n^2)"], "correct_answer": 2, "explanation": "Insertion at the beginning only requires updating a few pointers, making it constant time.", "difficulty": "hard", "topic": "Linked List"},
+  {"question": "What is a circular linked list?", "options": ["A linked list where each node points only to the next node", "A linked list where the last node points back to the first node", "A linked list with nodes stored in contiguous memory", "A linked list with nodes sorted in ascending order"], "correct_answer": 1, "explanation": "A circular linked list forms a closed loop.", "difficulty": "hard", "topic": "Linked List"},
+  {"question": "What is the time complexity of searching for a specific value in an unsorted linked list?", "options": ["O(1)", "O(log n)", "O(n)", "O(n^2)"], "correct_answer": 2, "explanation": "A linear search is required for unsorted linked lists.", "difficulty": "hard", "topic": "Linked List"},
+  {"question": "What advantage do linked lists have over arrays when dealing with frequent insertions and deletions in the middle of the data structure?", "options": ["Linked lists are faster", "Arrays require less memory", "Linked lists are simpler to implement", "Insertions and deletions are more efficient in linked lists"], "correct_answer": 3, "explanation": "Linked lists avoid the need for shifting elements during insertion and deletion.", "difficulty": "hard", "topic": "Linked List vs. Array"},
+  {"question": "What data structure would be MOST efficient for implementing a queue?", "options": ["Sorted array", "Unsorted array", "Linked list", "Binary search tree"], "correct_answer": 2, "explanation": "Linked lists allow efficient insertion and deletion from both ends, crucial for queue operations.", "difficulty": "hard", "topic": "Linked List Applications"},
+  {"question": "Which of the following best describes a stack?", "options": ["First-In, First-Out (FIFO)", "Last-In, First-Out (LIFO)", "Random access", "Sequential access"], "correct_answer": 1, "explanation": "Stacks follow the LIFO principle: the last element added is the first to be removed.", "difficulty": "hard", "topic": "Linked List Applications"},
+  {"question": "How does a singly linked list differ from a doubly linked list?", "options": ["Singly linked lists require more memory", "Doubly linked lists support bidirectional traversal", "Singly linked lists are faster to traverse", "Doubly linked lists are simpler to implement"], "correct_answer": 1, "explanation": "Doubly linked lists have pointers to both the next and previous nodes.", "difficulty": "hard", "topic": "Linked List Types"},
+  {"question": "What is the primary disadvantage of using a singly linked list compared to a doubly linked list?", "options": ["Higher memory usage", "Slower traversal", "Inability to traverse backwards", "More complex implementation"], "correct_answer": 2, "explanation": "Traversal in a singly linked list is unidirectional.", "difficulty": "hard", "topic": "Linked List Comparison"},
+  {"question": "In a linked list, what does the term 'head' refer to?", "options": ["The last node in the list", "A node containing the data", "The first node in the list", "The middle node in the list"], "correct_answer": 2, "explanation": "The head is the starting point for traversing a linked list.", "difficulty": "hard", "topic": "Linked List Terminology"},
+  {"question": "What is a common use case for a linked list?", "options": ["Storing and retrieving data based on a key", "Implementing a stack or queue", "Sorting large datasets efficiently", "Direct access to any element quickly"], "correct_answer": 1, "explanation": "Linked lists are well-suited for dynamic data structures like stacks and queues.", "difficulty": "hard", "topic": "Linked List Applications"},
+  {"question": "What is the time complexity for deleting a node at the end of a singly linked list?", "options":["O(1)","O(log n)","O(n)","O(n^2)"],"correct_answer":2,"explanation":"You need to traverse the entire list to reach the last node before deletion.","difficulty":"hard","topic":"Linked List Operations"}
+]
+```
+
+
+=== END OF RESPONSE ===

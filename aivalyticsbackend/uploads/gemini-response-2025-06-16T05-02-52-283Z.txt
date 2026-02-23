@@ -1,0 +1,44 @@
+=== GEMINI AI RESPONSE LOG ===
+Timestamp: 2025-06-16T05:02:52.283Z
+Content Length: 
+
+Programming Fundamentals 
+Hyesung Park, Na’el Abu-halaweh, Sonal S. Dekhane, Wei Jin, Robert Lutz, 
+Richard W. Price, Tacksoo Im 
+ 
+Table of Contents 
+1. Getting Started ........................................................................................................................ 9 
+1.1. Learning Outcomes ........................................................................................................ 9 
+1.2. Key Terms .............................................................
+Topics: computer fundamentals
+Number of Questions: 20
+Max Score: 100
+
+=== RAW GEMINI RESPONSE ===
+```json
+[
+  {"question": "What is the primary function of the CPU (Central Processing Unit) in a computer?", "options": ["Stores data permanently", "Displays information on the screen", "Executes instructions and performs calculations", "Manages network connections"], "correct_answer": 2, "explanation": "The CPU is the brain of the computer, responsible for processing instructions and performing calculations.", "difficulty": "medium", "topic": "Basic Computer Architecture"},
+  {"question": "In the context of computer architecture, what does RAM stand for?", "options": ["Read-Ahead Memory", "Random Access Memory", "Read-Only Memory", "Real-time Access Memory"], "correct_answer": 1, "explanation": "RAM is Random Access Memory, a type of volatile memory used for temporary data storage.", "difficulty": "medium", "topic": "Basic Computer Architecture"},
+  {"question": "What is the purpose of an algorithm in computer science?", "options": ["To display graphics on a screen", "To manage network traffic", "To define a step-by-step procedure to solve a problem", "To store data permanently"], "correct_answer": 2, "explanation": "An algorithm is a sequence of instructions designed to solve a specific problem.", "difficulty": "medium", "topic": "Algorithms"},
+  {"question": "Which number system is primarily used for representing data within a computer?", "options": ["Decimal", "Octal", "Hexadecimal", "Binary"], "correct_answer": 3, "explanation": "Computers use the binary system (base-2) to represent data using 0s and 1s.", "difficulty": "medium", "topic": "Binary Number System"},
+  {"question": "What is the decimal equivalent of the binary number 1011?", "options": ["5", "9", "11", "13"], "correct_answer": 2, "explanation": "1011 in binary is 1*8 + 0*4 + 1*2 + 1*1 = 11 in decimal.", "difficulty": "medium", "topic": "Binary Number System"},
+  {"question": "What is the two's complement of the binary number 1010?", "options": ["0101", "1010", "1011", "0110"], "correct_answer": 0, "explanation": "To find the two's complement, invert the bits (0 becomes 1, 1 becomes 0) and add 1.  Inverting 1010 gives 0101. Adding 1 gives 0110.", "difficulty": "hard", "topic": "Binary Number System"},
+  {"question": "What is the nine's complement of the decimal number 456?", "options": ["543", "456", "999", "0"], "correct_answer": 0, "explanation": "The nine's complement of a decimal number is obtained by subtracting each digit from 9.", "difficulty": "medium", "topic": "Binary Number System"},
+  {"question": "What does Java's 'println' function do?", "options": ["Prints a message to the console without a newline", "Prints a message to the console and then moves to the next line", "Prints a message to a file", "Prints an error message to the console"], "correct_answer": 1, "explanation": "'println' prints to the console and adds a newline character at the end.", "difficulty": "medium", "topic": "Java Programming"},
+  {"question": "What is the purpose of a compiler in the context of Java programming?", "options": ["To execute a Java program directly", "To translate Java code into machine-readable instructions", "To debug errors in Java code", "To design the user interface of a Java application"], "correct_answer": 1, "explanation": "A compiler translates high-level code (Java) into low-level machine code.", "difficulty": "medium", "topic": "Java Programming"},
+  {"question": "What is the significance of the 'main' method in a Java program?", "options": ["It handles user input", "It is the entry point for program execution", "It manages memory allocation", "It handles file I/O"], "correct_answer": 1, "explanation": "The 'main' method is where the program begins its execution.", "difficulty": "medium", "topic": "Java Programming"},
+  {"question": "What does JDK stand for in the context of Java development?", "options": ["Java Development Kit", "Java Deployment Kit", "Java Data Kit", "Java Documentation Kit"], "correct_answer": 0, "explanation": "JDK is the Java Development Kit, providing tools for compiling and running Java programs.", "difficulty": "medium", "topic": "Java Programming"},
+  {"question": "What type of error is a syntax error in Java?", "options": ["Logical error", "Runtime error", "Compile-time error", "Link-time error"], "correct_answer": 2, "explanation": "Syntax errors are detected during compilation because they violate the rules of the Java language.", "difficulty": "hard", "topic": "Java Programming"},
+  {"question": "In Java, what is an escape sequence used for?", "options": ["To declare variables", "To handle exceptions", "To represent special characters within strings", "To define methods"], "correct_answer": 2, "explanation": "Escape sequences (e.g., \\n for newline) allow including special characters in strings.", "difficulty": "medium", "topic": "Java Programming"},
+  {"question": "What is the role of the 'public' keyword in a Java class declaration?", "options": ["It restricts access to the class", "It indicates the class is abstract", "It makes the class accessible from anywhere", "It specifies the class's data type"], "correct_answer": 2, "explanation": "'public' means the class is accessible from any other part of the program.", "difficulty": "hard", "topic": "Java Programming"},
+  {"question": "What is the difference between 'print' and 'println' in Java?", "options": ["'print' adds a newline, 'println' doesn't", "'println' adds a newline, 'print' doesn't", "They are functionally identical", "'print' is for integers, 'println' is for strings"], "correct_answer": 1, "explanation": "'println' adds a newline character after printing.", "difficulty": "medium", "topic": "Java Programming"},
+  {"question": "What is a ‘comment’ used for in programming?", "options":["To execute code conditionally", "To improve the readability and understanding of code", "To define variables in code", "To declare methods in code"], "correct_answer": 1, "explanation": "Comments are used to explain code and improve readability. They are ignored by the compiler.", "difficulty": "medium", "topic": "Programming Basics"},
+  {"question": "What is the purpose of a ‘variable’ in programming?", "options":["To store and manipulate data", "To control the flow of a program", "To define functions", "To declare classes"], "correct_answer": 0, "explanation": "Variables are used to store and manipulate data values.", "difficulty": "medium", "topic": "Programming Basics"},
+  {"question": "What is an ‘operator’ in programming?", "options":["A programming function", "A symbol that performs an operation on data", "A data type", "A variable declaration"], "correct_answer": 1, "explanation": "Operators perform various operations such as arithmetic, logical, or comparison operations.", "difficulty": "medium", "topic": "Programming Basics"},
+  {"question": "In early computing, what was the significance of the invention of the transistor?", "options": ["It replaced vacuum tubes, leading to smaller and more efficient computers", "It facilitated the development of the internet", "It made programming easier", "It improved computer graphics"], "correct_answer": 0, "explanation": "Transistors replaced bulky and heat-producing vacuum tubes, enabling smaller and more reliable computers.", "difficulty": "hard", "topic": "Early Computing"},
+  {"question": "What is computer science fundamentally concerned with?", "options": ["Building and using computers", "The theory of computation and its applications", "Programming only", "Hardware design only"], "correct_answer": 1, "explanation": "Computer science is concerned with the theoretical foundations of information and computation and their implementation and application in computer systems.", "difficulty": "hard", "topic": "What is Computer Science?"}
+]
+```
+
+
+=== END OF RESPONSE ===

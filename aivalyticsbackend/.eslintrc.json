@@ -1,0 +1,50 @@
+{
+  "env": {
+    "node": true,
+    "es2021": true,
+    "jest": true
+  },
+  "extends": "airbnb-base",
+  "parserOptions": {
+    "ecmaVersion": "latest",
+    "sourceType": "module"
+  },
+  "rules": {
+    "no-console": "off",
+    "import/no-extraneous-dependencies": ["error", {"devDependencies": true}],
+    "linebreak-style": "off",
+    "quotes": ["error", "double"],
+    "comma-dangle": ["error", "always-multiline"],
+    "class-methods-use-this": "off",
+    "camelcase": "off",
+    "no-plusplus": "off",
+    "no-param-reassign": "off",
+    "consistent-return": "off",
+    "no-nested-ternary": "off",
+    "max-len": ["error", { 
+      "code": 200,
+      "ignoreUrls": true,
+      "ignoreStrings": true,
+      "ignoreTemplateLiterals": true,
+      "ignoreRegExpLiterals": true
+    }],
+    "no-unused-vars": ["warn", { 
+      "argsIgnorePattern": "^_",
+      "varsIgnorePattern": "^(HTTP_STATUS|ERROR_MESSAGES|SUCCESS_MESSAGES|ROLES|authorizeOwnerOrAdmin|next|columns|functionName|params|data|enrolledCourses|totalMaxScore|totalQuizAttempts)$",
+      "args": "none"
+    }],
+    "no-restricted-syntax": "off",
+    "no-await-in-loop": "off",
+    "no-prototype-builtins": "off",
+    "no-control-regex": "off",
+    "default-param-last": "off",
+    "default-case": "off",
+    "no-shadow": "off",
+    "radix": "off",
+    "no-use-before-define": ["error", { 
+      "functions": false,
+      "classes": false,
+      "variables": false
+    }]
+  }
+}
