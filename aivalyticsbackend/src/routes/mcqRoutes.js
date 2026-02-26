@@ -5,6 +5,7 @@ const path = require("path");
 const { authenticateToken, authorizeRoles } = require("../middleware/auth");
 const {
   generateMCQ,
+  generateMCQFromText,
   getTeacherQuizzes,
   deleteQuiz,
   getCourseQuizzes,
@@ -80,6 +81,18 @@ router.post(
   authorizeRoles(["teacher", "hod", "principal"]),
   upload.single("file"),
   generateMCQ
+);
+
+/**
+ * @route POST /api/mcq/generate-text
+ * @desc Generate MCQ quiz from pasted lecture content using Google Gemini AI
+ * @access Private (Teachers only)
+ */
+router.post(
+  "/generate-text",
+  authenticateToken,
+  authorizeRoles(["teacher", "hod", "principal"]),
+  generateMCQFromText
 );
 
 /**

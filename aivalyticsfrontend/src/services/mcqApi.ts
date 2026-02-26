@@ -81,6 +81,16 @@ export interface GenerateMCQResponse {
   };
 }
 
+export interface GenerateGeminiMCQRequest {
+  course_id?: string;
+  quiz_name?: string;
+  lecture_content: string;
+  num_questions?: number;
+  max_score?: number;
+  topics?: string;
+  gemini_api_key: string;
+}
+
 export interface GetQuizzesResponse {
   success: boolean;
   data: {
@@ -204,11 +214,11 @@ class MCQService {
     formData.append('course_id', data.course_id);
     formData.append('quiz_name', data.quiz_name);
     formData.append('file', data.file);
-    
+
     if (data.num_questions) {
       formData.append('num_questions', data.num_questions.toString());
     }
-    
+
     if (data.max_score) {
       formData.append('max_score', data.max_score.toString());
     }
@@ -234,6 +244,28 @@ class MCQService {
   }
 
   /**
+   * Generate MCQ from pasted text using Google Gemini AI
+   */
+  async generateMCQFromText(data: GenerateGeminiMCQRequest): Promise<GenerateMCQResponse> {
+    const token = localStorage.getItem('accessToken');
+    const response = await fetch(`${this.baseURL}/mcq/generate-text`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.message || 'Failed to generate MCQ');
+    }
+
+    return response.json();
+  }
+
+  /**
    * Get teacher's quizzes with pagination
    */
   async getTeacherQuizzes(params?: {
@@ -242,7 +274,7 @@ class MCQService {
     course_id?: string;
   }): Promise<GetQuizzesResponse> {
     const queryParams = new URLSearchParams();
-    
+
     if (params?.page) queryParams.append('page', params.page.toString());
     if (params?.limit) queryParams.append('limit', params.limit.toString());
     if (params?.course_id) queryParams.append('course_id', params.course_id);
@@ -298,7 +330,7 @@ class MCQService {
       page: page.toString(),
       limit: limit.toString(),
     });
-    
+
     if (courseId) {
       params.append('course_id', courseId);
     }
@@ -342,7 +374,7 @@ class MCQService {
 
     if (!response.ok) {
       const errorText = await response.text();
-      
+
       try {
         const errorData = JSON.parse(errorText);
         throw new Error(errorData.message || 'Failed to fetch quiz submissions');
@@ -501,8 +533,7 @@ class MCQService {
     } catch (error: any) {
       const errorText = error.response?.data?.message || error.message;
       throw new Error(
-        `HTTP ${error.response?.status}: ${
-          errorText || "Failed to get detailed explanation"
+        `HTTP ${error.response?.status}: ${errorText || "Failed to get detailed explanation"
         }`
       );
     }
