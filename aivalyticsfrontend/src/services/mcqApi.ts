@@ -91,6 +91,16 @@ export interface GenerateGeminiMCQRequest {
   gemini_api_key: string;
 }
 
+export interface GenerateGeminiMCQFileRequest {
+  course_id?: string;
+  quiz_name?: string;
+  file: File;
+  num_questions?: number;
+  max_score?: number;
+  topics?: string;
+  gemini_api_key: string;
+}
+
 export interface GetQuizzesResponse {
   success: boolean;
   data: {
@@ -260,6 +270,36 @@ class MCQService {
     if (!response.ok) {
       const errorData = await response.json();
       throw new Error(errorData.message || 'Failed to generate MCQ');
+    }
+
+    return response.json();
+  }
+
+  /**
+   * Generate MCQ from an uploaded file (PDF/DOCX/TXT) using Google Gemini AI
+   */
+  async generateMCQFromFile(data: GenerateGeminiMCQFileRequest): Promise<GenerateMCQResponse> {
+    const token = localStorage.getItem('accessToken');
+    const formData = new FormData();
+    formData.append('file', data.file);
+    formData.append('gemini_api_key', data.gemini_api_key);
+    if (data.num_questions) formData.append('num_questions', data.num_questions.toString());
+    if (data.max_score) formData.append('max_score', data.max_score.toString());
+    if (data.topics) formData.append('topics', data.topics);
+    if (data.course_id) formData.append('course_id', data.course_id);
+    if (data.quiz_name) formData.append('quiz_name', data.quiz_name);
+
+    const response = await fetch(`${this.baseURL}/mcq/generate-file`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.message || 'Failed to generate MCQ from file');
     }
 
     return response.json();

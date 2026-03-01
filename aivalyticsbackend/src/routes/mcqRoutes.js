@@ -6,6 +6,7 @@ const { authenticateToken, authorizeRoles } = require("../middleware/auth");
 const {
   generateMCQ,
   generateMCQFromText,
+  generateMCQFromFile,
   getTeacherQuizzes,
   deleteQuiz,
   getCourseQuizzes,
@@ -46,12 +47,11 @@ const upload = multer({
   fileFilter: (req, file, cb) => {
     const allowedTypes = [
       "application/pdf",
-      "application/vnd.openxmlformats-officedocument.presentationml.presentation", // PPTX
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // DOCX
       "text/plain",
     ];
 
-    const allowedExtensions = [".pdf", ".pptx", ".docx", ".txt"];
+    const allowedExtensions = [".pdf", ".docx", ".txt"];
     const fileExtension = path.extname(file.originalname).toLowerCase();
 
     if (
@@ -62,7 +62,7 @@ const upload = multer({
     } else {
       cb(
         new Error(
-          "Invalid file type. Only PDF, PPTX, DOCX, and TXT files are allowed."
+          "Invalid file type. Only PDF, DOCX, and TXT files are allowed."
         ),
         false
       );
@@ -72,7 +72,7 @@ const upload = multer({
 
 /**
  * @route POST /api/mcq/generate
- * @desc Generate MCQ quiz from uploaded file
+ * @desc Generate MCQ quiz from uploaded file (OpenAI - legacy)
  * @access Private (Teachers only)
  */
 router.post(
@@ -81,6 +81,19 @@ router.post(
   authorizeRoles(["teacher", "hod", "principal"]),
   upload.single("file"),
   generateMCQ
+);
+
+/**
+ * @route POST /api/mcq/generate-file
+ * @desc Generate MCQ quiz from uploaded file using Google Gemini AI
+ * @access Private (Teachers only)
+ */
+router.post(
+  "/generate-file",
+  authenticateToken,
+  authorizeRoles(["teacher", "hod", "principal"]),
+  upload.single("file"),
+  generateMCQFromFile
 );
 
 /**

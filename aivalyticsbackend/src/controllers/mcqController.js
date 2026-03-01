@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const OpenAI = require("openai");
 const pdf = require("pdf-parse");
+const mammoth = require("mammoth");
 const { supabase, adminSupabase } = require("../config/database");
 
 /**
@@ -378,18 +379,23 @@ const extractTextFromFile = async (filePath, fileType) => {
 
     if (
       fileType ===
-      "application/vnd.openxmlformats-officedocument.presentationml.presentation" ||
-      fileType ===
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     ) {
-      // For PPTX and DOCX files, you would need additional libraries like mammoth or officegen
-      // For now, returning a message to use PDF or TXT
+      // Extract text from DOCX using mammoth
+      const result = await mammoth.extractRawText({ path: filePath });
+      return result.value;
+    }
+
+    if (
+      fileType ===
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    ) {
       throw new Error(
-        "PPTX and DOCX files are not fully supported yet. Please convert to PDF or TXT format."
+        "PPTX files are not supported. Please convert to PDF, DOCX, or TXT format."
       );
     }
 
-    throw new Error("Unsupported file type");
+    throw new Error("Unsupported file type. Allowed: PDF, DOCX, TXT.");
   } catch (error) {
     throw new Error(`Failed to extract text from file: ${error.message}`);
   }
@@ -2101,9 +2107,126 @@ const generateMCQFromText = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Generate MCQ from uploaded file using Google Gemini AI
+ * @route   POST /api/mcq/generate-file
+ * @access  Private (Teachers only)
+ */
+const generateMCQFromFile = async (req, res) => {
+  const uploadedFilePath = req.file?.path;
+  try {
+    const {
+      num_questions = 10,
+      max_score = 100,
+      topics = "",
+      gemini_api_key,
+    } = req.body;
+
+    const quiz_name =
+      req.body.quiz_name ||
+      `AI Quiz - ${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} ${new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}`;
+
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: "No file uploaded. Please attach a PDF, DOCX, or TXT file." });
+    }
+    if (!gemini_api_key || !gemini_api_key.trim()) {
+      if (uploadedFilePath) fs.unlinkSync(uploadedFilePath);
+      return res.status(400).json({ success: false, message: "Gemini API key is required. Get yours at https://aistudio.google.com/" });
+    }
+
+    const userId = req.user.id;
+    const userRole = req.user.role;
+    if (!["teacher", "hod", "principal"].includes(userRole)) {
+      if (uploadedFilePath) fs.unlinkSync(uploadedFilePath);
+      return res.status(403).json({ success: false, message: "Only teachers can generate MCQs" });
+    }
+
+    // Extract text from uploaded file
+    let extractedContent;
+    try {
+      extractedContent = await extractTextFromFile(req.file.path, req.file.mimetype);
+    } catch (error) {
+      if (uploadedFilePath) fs.unlinkSync(uploadedFilePath);
+      return res.status(400).json({ success: false, message: `Failed to read file: ${error.message}` });
+    }
+
+    if (!extractedContent || extractedContent.trim().length < 50) {
+      if (uploadedFilePath) fs.unlinkSync(uploadedFilePath);
+      return res.status(400).json({ success: false, message: "File content is too short or empty. Please upload a file with sufficient text content." });
+    }
+
+    console.log(`🤖 Gemini file MCQ generation | File: ${req.file.originalname} | Size: ${extractedContent.length} chars | Questions: ${num_questions}`);
+
+    let generatedQuestions;
+    try {
+      generatedQuestions = await generateMCQWithGemini(
+        extractedContent,
+        parseInt(num_questions),
+        parseInt(max_score),
+        topics,
+        gemini_api_key
+      );
+      console.log(`✅ Gemini generated ${generatedQuestions.length} questions from file`);
+    } catch (error) {
+      if (uploadedFilePath) fs.unlinkSync(uploadedFilePath);
+      console.error("❌ Gemini file generation failed:", error);
+      return res.status(500).json({ success: false, message: `Failed to generate MCQs: ${error.message}` });
+    }
+
+    // Clean up uploaded file after extraction
+    try { fs.unlinkSync(uploadedFilePath); } catch (e) { /* ignore */ }
+
+    if (generatedQuestions.length < 3) {
+      return res.status(400).json({ success: false, message: `Only ${generatedQuestions.length} questions generated. Please upload a file with more detailed content.` });
+    }
+
+    // Save to database
+    const course_id = req.body.course_id || null;
+    const { data: quiz, error: quizError } = await supabase
+      .from("quiz")
+      .insert({
+        name: quiz_name,
+        course_id: course_id || undefined,
+        created_by: userId,
+        updated_by: userId,
+        question_json: generatedQuestions,
+        max_score: parseInt(max_score),
+        status: "draft",
+      })
+      .select()
+      .single();
+
+    if (quizError) throw new Error(`Failed to save quiz: ${quizError.message}`);
+
+    console.log(`💾 File-based quiz saved. ID: ${quiz.id}`);
+
+    res.json({
+      success: true,
+      message: "MCQ quiz generated successfully from uploaded file using Google Gemini AI",
+      data: {
+        quiz_id: quiz.id,
+        quiz_name: quiz.name,
+        total_questions: generatedQuestions.length,
+        total_marks: quiz.max_score,
+        course_name: "General",
+        ai_model: "Google Gemini 2.0 Flash",
+        source_file: req.file.originalname,
+      },
+    });
+  } catch (error) {
+    // Always clean up file on error
+    if (uploadedFilePath) {
+      try { fs.unlinkSync(uploadedFilePath); } catch (e) { /* ignore */ }
+    }
+    console.error("generateMCQFromFile error:", error);
+    res.status(500).json({ success: false, message: "Internal server error during MCQ generation" });
+  }
+};
+
 module.exports = {
   generateMCQ,
   generateMCQFromText,
+  generateMCQFromFile,
   getTeacherQuizzes,
   deleteQuiz,
   getCourseQuizzes,
