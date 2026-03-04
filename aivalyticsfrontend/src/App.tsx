@@ -28,6 +28,10 @@ import ClassManagementPage from "./pages/ClassManagementPage";
 import DepartmentsPage from "./pages/DepartmentsPage";
 import StudentAttendancePage from "./pages/StudentAttendancePage";
 import StudentAttendanceDashboard from "./pages/StudentAttendanceDashboard";
+import TeacherAcademicManagement from "./pages/TeacherAcademicManagement";
+import TeacherPerformance from "./pages/TeacherPerformance";
+import TeacherReports from "./pages/TeacherReports";
+import TeacherAlerts from "./pages/TeacherAlerts";
 
 function App() {
   return (
@@ -120,6 +124,50 @@ function App() {
               />
 
               {/* Teacher Routes */}
+              <Route
+                path="/academic-management"
+                element={
+                  <ProtectedRoute
+                    allowedRoles={["teacher", "hod", "principal"]}
+                  >
+                    <TeacherAcademicManagement />
+                  </ProtectedRoute>
+                }
+              />
+
+              <Route
+                path="/performance"
+                element={
+                  <ProtectedRoute
+                    allowedRoles={["teacher", "hod", "principal"]}
+                  >
+                    <TeacherPerformance />
+                  </ProtectedRoute>
+                }
+              />
+
+              <Route
+                path="/teacher-reports"
+                element={
+                  <ProtectedRoute
+                    allowedRoles={["teacher", "hod", "principal"]}
+                  >
+                    <TeacherReports />
+                  </ProtectedRoute>
+                }
+              />
+
+              <Route
+                path="/alerts"
+                element={
+                  <ProtectedRoute
+                    allowedRoles={["teacher", "hod", "principal"]}
+                  >
+                    <TeacherAlerts />
+                  </ProtectedRoute>
+                }
+              />
+
               <Route
                 path="/my-courses"
                 element={

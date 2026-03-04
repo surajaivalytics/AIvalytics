@@ -3,28 +3,15 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 import { useTheme } from "../../contexts/ThemeContext";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import { Badge } from "../../components/ui/badge";
-import { Progress } from "../../components/ui/progress";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  AreaChart,
-  Area,
-  Cell,
-  LabelList
-} from 'recharts';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../components/ui/tabs";
+import MCQPerformanceChart from "../../components/charts/MCQPerformanceChart";
+import AIConceptHeatmap from "../../components/charts/AIConceptHeatmap";
 import {
   Book,
   Calendar,
   ChartBar,
   CheckCircle,
-  Bell as BellIcon,
   AlertTriangle as ExclamationCircle,
   FileText as DocumentText,
   GraduationCap,
@@ -41,92 +28,16 @@ import {
   Plus as PlusIcon
 } from "lucide-react";
 import StatCard from "../../components/dashboard/StatCard";
-import TeacherAttendance from "../../components/TeacherAttendance";
-import CourseManagement from "../../components/CourseManagement";
-import MCQGenerator from "../../components/MCQGenerator";
 import LoadingSpinner from "../../components/LoadingSpinner";
 
-// Static data for charts
-const weeklyPerformanceData = [
-  { day: 'Mon', accuracy: 65, attendance: 100 },
-  { day: 'Tue', accuracy: 72, attendance: 100 },
-  { day: 'Wed', accuracy: 68, attendance: 100 },
-  { day: 'Thu', accuracy: 75, attendance: 100 },
-  { day: 'Fri', accuracy: 82, attendance: 100 },
-  { day: 'Sat', accuracy: 78, attendance: 90 },
-  { day: 'Sun', accuracy: 80, attendance: 95 },
-];
 
-const conceptMasteryData = [
-  { name: "Machine Learning", percentage: 85 },
-  { name: "Neural Networks", percentage: 72 },
-  { name: "Data Structures", percentage: 90 },
-  { name: "Algorithms", percentage: 78 },
-  { name: "Statistics", percentage: 88 },
-];
-
-const learningTimeData = [
-  { day: 'Mon', minutes: 45, goal: 60 },
-  { day: 'Tue', minutes: 68, goal: 60 },
-  { day: 'Wed', minutes: 52, goal: 60 },
-  { day: 'Thu', minutes: 63, goal: 60 },
-  { day: 'Fri', minutes: 49, goal: 60 },
-  { day: 'Sat', minutes: 32, goal: 60 },
-  { day: 'Sun', minutes: 38, goal: 60 },
-];
-
-const tabItems = [
-  {
-    value: "overview",
-    label: "Overview",
-    icon: <TrendingUp className="h-4 w-4" />,
-    color: "blue",
-    description: "Dashboard overview and key metrics"
-  },
-  {
-    value: "courses",
-    label: "Courses",
-    icon: <Book className="h-4 w-4" />,
-    color: "purple",
-    description: "Manage your courses and content"
-  },
-  {
-    value: "attendance",
-    label: "Attendance",
-    icon: <Calendar className="h-4 w-4" />,
-    color: "emerald",
-    description: "Track student attendance"
-  },
-  {
-    value: "quizzes",
-    label: "Quizzes",
-    icon: <ListCheck className="h-4 w-4" />,
-    color: "amber",
-    description: "Create and manage assessments"
-  }
-];
 
 const TeacherDashboard: React.FC = () => {
   const { user } = useAuth();
   const { isDark } = useTheme();
-  const location = useLocation();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState("overview");
   const [animateCharts, setAnimateCharts] = useState(false);
-
-  // Enhanced static data
-  const dashboardStats = {
-    totalStudents: 156,
-    activeStudents: 142,
-    averageQuizAccuracy: 75,
-    quizzesGenerated: 24,
-    engagementLevel: 82,
-    quizAccuracyChange: "+5%",
-    engagementChange: "+3%",
-    upcomingClasses: 3,
-    pendingAssignments: 12
-  };
 
   useEffect(() => {
     // Simulate loading
@@ -136,316 +47,6 @@ const TeacherDashboard: React.FC = () => {
     }, 1000);
   }, []);
 
-  // Custom tooltip with improved styling
-  const CustomTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
-              return (
-        <div className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-lg px-4 py-3 rounded-lg shadow-xl border border-gray-200/20 dark:border-gray-700/20">
-          <p className="font-medium text-gray-900 dark:text-gray-100">{label}</p>
-          <div className="mt-2 space-y-1">
-            {payload.map((entry: any, index: number) => (
-              <div key={index} className="flex items-center justify-between gap-8">
-                <span className="text-gray-600 dark:text-gray-400">{entry.name}:</span>
-                <span className="font-medium text-blue-600 dark:text-blue-400">
-                  {entry.value}%
-                </span>
-          </div>
-            ))}
-      </div>
-    </div>
-  );
-    }
-    return null;
-  };
-
-  const renderOverviewTab = () => (
-    <div className="space-y-6">
-      {/* Welcome Section */}
-      <div className="relative overflow-hidden bg-white dark:bg-gray-800/50 rounded-xl border border-gray-200/50 dark:border-gray-700/50 shadow-sm backdrop-blur-xl">
-        <div className="absolute inset-0 bg-gradient-to-r from-blue-500/5 to-purple-500/5 dark:from-blue-500/[0.05] dark:to-purple-500/[0.05]"></div>
-        <div className="relative p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-2xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400">
-                Good {new Date().getHours() < 12 ? 'Morning' : new Date().getHours() < 17 ? 'Afternoon' : 'Evening'}, 
-                {user?.username ? ` ${user.username}` : ''}
-              </h2>
-              <p className="mt-1 text-gray-600 dark:text-gray-400">
-                Here's what's happening in your classes today
-              </p>
-            </div>
-            <div className="flex items-center space-x-6">
-              <div className="text-center px-4 py-3 rounded-lg bg-blue-50/50 dark:bg-blue-900/20 border border-blue-100/50 dark:border-blue-800/50">
-                <div className="text-sm font-medium text-blue-700 dark:text-blue-300">Upcoming</div>
-                <div className="mt-1 text-2xl font-bold text-blue-600 dark:text-blue-400">{dashboardStats.upcomingClasses}</div>
-                <div className="text-xs text-blue-600/70 dark:text-blue-300/70">Classes Today</div>
-              </div>
-              <div className="text-center px-4 py-3 rounded-lg bg-amber-50/50 dark:bg-amber-900/20 border border-amber-100/50 dark:border-amber-800/50">
-                <div className="text-sm font-medium text-amber-700 dark:text-amber-300">Pending</div>
-                <div className="mt-1 text-2xl font-bold text-amber-600 dark:text-amber-400">{dashboardStats.pendingAssignments}</div>
-                <div className="text-xs text-amber-600/70 dark:text-amber-300/70">Assignments</div>
-              </div>
-      </div>
-        </div>
-        </div>
-      </div>
-
-      {/* Quick Actions */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        {[
-          {
-            title: "Create Quiz",
-            description: "Generate new assessments",
-            icon: <PlusIcon className="w-5 h-5" />,
-            bgColor: "bg-blue-50/50 dark:bg-blue-900/20",
-            borderColor: "border-blue-100/50 dark:border-blue-800/50",
-            iconColor: "text-blue-600 dark:text-blue-400",
-            onClick: () => navigate("/quiz-generator")
-          },
-          {
-            title: "Schedule Class",
-            description: "Plan your sessions",
-            icon: <Calendar className="w-5 h-5" />,
-            bgColor: "bg-purple-50/50 dark:bg-purple-900/20",
-            borderColor: "border-purple-100/50 dark:border-purple-800/50",
-            iconColor: "text-purple-600 dark:text-purple-400"
-          },
-          {
-            title: "Grade Assignments",
-            description: "Review submissions",
-            icon: <DocumentText className="w-5 h-5" />,
-            bgColor: "bg-emerald-50/50 dark:bg-emerald-900/20",
-            borderColor: "border-emerald-100/50 dark:border-emerald-800/50",
-            iconColor: "text-emerald-600 dark:text-emerald-400"
-          },
-          {
-            title: "AI Assistant",
-            description: "Get teaching insights",
-            icon: <Brain className="w-5 h-5" />,
-            bgColor: "bg-amber-50/50 dark:bg-amber-900/20",
-            borderColor: "border-amber-100/50 dark:border-amber-800/50",
-            iconColor: "text-amber-600 dark:text-amber-400"
-          }
-        ].map((action, index) => (
-          <button
-            key={index}
-            onClick={action.onClick}
-            className={`relative overflow-hidden bg-white/50 dark:bg-gray-800/50 backdrop-blur-xl rounded-lg border ${action.borderColor} hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all group`}
-          >
-            <div className="absolute inset-0 bg-gradient-to-r from-gray-500/5 to-gray-500/0 dark:from-white/[0.02] dark:to-white/0"></div>
-            <div className="relative p-4">
-              <div className="flex items-center space-x-3">
-                <div className={`p-2 rounded-lg ${action.bgColor} ${action.iconColor} group-hover:scale-110 transition-transform`}>
-                  {action.icon}
-        </div>
-                <div className="text-left">
-                  <div className="text-sm font-medium text-gray-900 dark:text-white">{action.title}</div>
-                  <div className="text-xs text-gray-600 dark:text-gray-400">{action.description}</div>
-              </div>
-              </div>
-            </div>
-          </button>
-          ))}
-        </div>
-
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-        <StatCard
-          title="Total Students"
-          value={dashboardStats.totalStudents.toString()}
-          description={`${dashboardStats.activeStudents} active now`}
-          icon={<Users className="h-5 w-5" />}
-          trend="+12"
-          trendLabel="this month"
-          className="bg-white/50 dark:bg-gray-800/50 backdrop-blur-xl border-gray-200/50 dark:border-gray-700/50"
-        />
-        <StatCard
-          title="Quiz Performance"
-          value={`${dashboardStats.averageQuizAccuracy}%`}
-          icon={<CheckCircle className="h-5 w-5" />}
-          trend={dashboardStats.quizAccuracyChange}
-          trendLabel="accuracy rate"
-          className="bg-white/50 dark:bg-gray-800/50 backdrop-blur-xl border-gray-200/50 dark:border-gray-700/50"
-        />
-        <StatCard
-          title="Assessments Created"
-          value={dashboardStats.quizzesGenerated.toString()}
-          icon={<ListCheck className="h-5 w-5" />}
-          description="Last 30 days"
-          className="bg-white/50 dark:bg-gray-800/50 backdrop-blur-xl border-gray-200/50 dark:border-gray-700/50"
-        />
-        <StatCard
-          title="Class Engagement"
-          value={`${dashboardStats.engagementLevel}%`}
-          icon={<ChartBar className="h-5 w-5" />}
-          trend={dashboardStats.engagementChange}
-          trendLabel="participation"
-          className="bg-white/50 dark:bg-gray-800/50 backdrop-blur-xl border-gray-200/50 dark:border-gray-700/50"
-        />
-      </div>
-
-      {/* Charts Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <Card className="relative overflow-hidden bg-white/50 dark:bg-gray-800/50 backdrop-blur-xl border-gray-200/50 dark:border-gray-700/50">
-          <div className="absolute inset-0 bg-gradient-to-r from-blue-500/[0.02] to-blue-500/0 dark:from-blue-500/[0.02] dark:to-blue-500/0"></div>
-          <CardHeader className="relative border-b border-gray-200/50 dark:border-gray-700/50">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                <TrendingUp className="h-5 w-5 text-blue-500 dark:text-blue-400" />
-                <span className="bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-blue-400 dark:from-blue-400 dark:to-blue-300">
-                  Weekly Performance
-                </span>
-              </CardTitle>
-              <Badge variant="outline" className="font-normal bg-blue-50/50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border-blue-200/50 dark:border-blue-800/50">
-                Last 7 Days
-              </Badge>
-            </div>
-          </CardHeader>
-          <CardContent className="relative pt-6">
-            <div className="h-[300px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={weeklyPerformanceData}>
-                  <defs>
-                    <linearGradient id="colorAccuracy" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor={isDark ? "#60a5fa" : "#3b82f6"} stopOpacity={0.2}/>
-                      <stop offset="95%" stopColor={isDark ? "#60a5fa" : "#3b82f6"} stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "rgba(75, 85, 99, 0.2)" : "rgba(209, 213, 219, 0.5)"} />
-                  <XAxis 
-                    dataKey="day" 
-                    stroke={isDark ? "#9ca3af" : "#6b7280"}
-                    tick={{ fill: isDark ? "#9ca3af" : "#6b7280" }}
-                  />
-                  <YAxis 
-                    stroke={isDark ? "#9ca3af" : "#6b7280"}
-                    tick={{ fill: isDark ? "#9ca3af" : "#6b7280" }}
-                  />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Area
-                    type="monotone"
-                    dataKey="accuracy"
-                    stroke={isDark ? "#60a5fa" : "#3b82f6"}
-                    strokeWidth={2}
-                    fillOpacity={1}
-                    fill="url(#colorAccuracy)"
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="relative overflow-hidden bg-white/50 dark:bg-gray-800/50 backdrop-blur-xl border-gray-200/50 dark:border-gray-700/50">
-          <div className="absolute inset-0 bg-gradient-to-r from-purple-500/[0.02] to-purple-500/0 dark:from-purple-500/[0.02] dark:to-purple-500/0"></div>
-          <CardHeader className="relative border-b border-gray-200/50 dark:border-gray-700/50">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                <Brain className="h-5 w-5 text-purple-500 dark:text-purple-400" />
-                <span className="bg-clip-text text-transparent bg-gradient-to-r from-purple-600 to-purple-400 dark:from-purple-400 dark:to-purple-300">
-                  Subject Performance
-                </span>
-              </CardTitle>
-              <Badge variant="outline" className="font-normal bg-purple-50/50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 border-purple-200/50 dark:border-purple-800/50">
-                Class Average
-              </Badge>
-            </div>
-          </CardHeader>
-          <CardContent className="relative pt-6">
-            <div className="h-[300px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={conceptMasteryData} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "rgba(75, 85, 99, 0.2)" : "rgba(209, 213, 219, 0.5)"} />
-                  <XAxis 
-                    type="number" 
-                    domain={[0, 100]}
-                    stroke={isDark ? "#9ca3af" : "#6b7280"}
-                    tick={{ fill: isDark ? "#9ca3af" : "#6b7280" }}
-                  />
-                  <YAxis 
-                    type="category" 
-                    dataKey="name" 
-                    width={120}
-                    stroke={isDark ? "#9ca3af" : "#6b7280"}
-                    tick={{ fill: isDark ? "#9ca3af" : "#6b7280" }}
-                  />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Bar 
-                    dataKey="percentage" 
-                    radius={[0, 4, 4, 0]}
-                  >
-                    {conceptMasteryData.map((entry, index) => (
-                      <Cell 
-                        key={`cell-${index}`}
-                        fill={isDark ? `rgba(147, 51, 234, ${0.3 + (entry.percentage / 200)})` : `rgba(147, 51, 234, ${0.4 + (entry.percentage / 200)})`}
-                      />
-                    ))}
-                    <LabelList 
-                      dataKey="percentage" 
-                      position="right" 
-                      formatter={(value: any) => `${value}%`}
-                      fill={isDark ? "#9ca3af" : "#6b7280"}
-                    />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="lg:col-span-2 relative overflow-hidden bg-white/50 dark:bg-gray-800/50 backdrop-blur-xl border-gray-200/50 dark:border-gray-700/50">
-          <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/[0.02] to-emerald-500/0 dark:from-emerald-500/[0.02] dark:to-emerald-500/0"></div>
-          <CardHeader className="relative border-b border-gray-200/50 dark:border-gray-700/50">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                <Clock className="h-5 w-5 text-emerald-500 dark:text-emerald-400" />
-                <span className="bg-clip-text text-transparent bg-gradient-to-r from-emerald-600 to-emerald-400 dark:from-emerald-400 dark:to-emerald-300">
-                  Student Learning Time
-                </span>
-              </CardTitle>
-              <Badge variant="outline" className="font-normal bg-emerald-50/50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 border-emerald-200/50 dark:border-emerald-800/50">
-                Daily Average
-              </Badge>
-            </div>
-          </CardHeader>
-          <CardContent className="relative pt-6">
-            <div className="h-[300px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={learningTimeData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "rgba(75, 85, 99, 0.2)" : "rgba(209, 213, 219, 0.5)"} />
-                  <XAxis 
-                    dataKey="day"
-                    stroke={isDark ? "#9ca3af" : "#6b7280"}
-                    tick={{ fill: isDark ? "#9ca3af" : "#6b7280" }}
-                  />
-                  <YAxis 
-                    stroke={isDark ? "#9ca3af" : "#6b7280"}
-                    tick={{ fill: isDark ? "#9ca3af" : "#6b7280" }}
-                  />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Bar dataKey="minutes" radius={[4, 4, 0, 0]}>
-                    {learningTimeData.map((entry, index) => (
-                      <Cell 
-                        key={`cell-${index}`}
-                        fill={entry.minutes >= entry.goal ? 
-                          (isDark ? "rgba(16, 185, 129, 0.7)" : "rgba(5, 150, 105, 0.7)") : 
-                          (isDark ? "rgba(99, 102, 241, 0.7)" : "rgba(79, 70, 229, 0.7)")}
-                      />
-                    ))}
-                    <LabelList 
-                      dataKey="minutes" 
-                      position="top"
-                      fill={isDark ? "#9ca3af" : "#6b7280"}
-                    />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  );
 
   if (loading) {
     return (
@@ -461,152 +62,213 @@ const TeacherDashboard: React.FC = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <Tabs defaultValue={activeTab} onValueChange={setActiveTab}>
-          {/* Enhanced Tab List */}
-        <div className="mb-8">
-            <TabsList className="relative bg-white/50 dark:bg-gray-800/50 backdrop-blur-xl border border-gray-200/50 dark:border-gray-700/50 rounded-xl p-1 grid grid-cols-4 gap-1">
-              {tabItems.map((tab) => (
-                <TabsTrigger
-                  key={tab.value}
-                  value={tab.value}
-                  className={`
-                    relative overflow-hidden group px-4 py-2.5 rounded-lg transition-all duration-300
-                    data-[state=active]:bg-${tab.color}-50/50 dark:data-[state=active]:bg-${tab.color}-900/20
-                    data-[state=active]:text-${tab.color}-700 dark:data-[state=active]:text-${tab.color}-300
-                    data-[state=active]:border-${tab.color}-200/50 dark:data-[state=active]:border-${tab.color}-800/50
-                  `}
-                >
-                  <div className="absolute inset-0 bg-gradient-to-r from-gray-500/5 to-gray-500/0 dark:from-white/[0.02] dark:to-white/0"></div>
-                  <div className="relative flex items-center gap-2">
-                    <span className={`
-                      text-gray-400 dark:text-gray-500 group-data-[state=active]:text-${tab.color}-500 
-                      dark:group-data-[state=active]:text-${tab.color}-400
-                    `}>
-                      {tab.icon}
-                    </span>
-                    <span>{tab.label}</span>
-                  </div>
-                </TabsTrigger>
-              ))}
-            </TabsList>
-            <div className="mt-2 px-1">
-              {tabItems.map((tab) => (
-                <div
-                  key={tab.value}
-                  className={`text-sm text-gray-500 dark:text-gray-400 ${activeTab === tab.value ? 'block' : 'hidden'}`}
-                >
-                  {tab.description}
-                </div>
-              ))}
-            </div>
-          </div>
+        <div className="space-y-6">
+          {/* Welcome Section & Actions */}
+          <div className="flex flex-col md:flex-row justify-between items-center w-full p-6 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700 relative overflow-hidden">
+            <div className="absolute inset-0 bg-gradient-to-r from-blue-500/5 to-purple-500/5 dark:from-blue-500/[0.05] dark:to-purple-500/[0.05] pointer-events-none"></div>
 
-          {/* Tab Content */}
-          <TabsContent value="overview">
-            {renderOverviewTab()}
-          </TabsContent>
-
-          <TabsContent value="courses">
-            <div className="space-y-6">
-              {/* Course Management Header */}
-              <div className="relative overflow-hidden bg-white/50 dark:bg-gray-800/50 backdrop-blur-xl rounded-xl border border-gray-200/50 dark:border-gray-700/50">
-                <div className="absolute inset-0 bg-gradient-to-r from-purple-500/5 to-purple-500/0 dark:from-purple-500/[0.05] dark:to-purple-500/0"></div>
-                <div className="relative p-6">
-                  <div className="flex items-center justify-between">
-            <div>
-                      <h2 className="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-purple-600 to-purple-400 dark:from-purple-400 dark:to-purple-300">
-                        Course Management
-                      </h2>
-              <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-                        Create and manage your educational content
+            <div className="relative z-10 mb-4 md:mb-0">
+              <h2 className="text-2xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400">
+                Teacher Dashboard
+              </h2>
+              <p className="mt-1 text-gray-600 dark:text-gray-400">
+                Welcome back! Here's what's happening with your classes.
               </p>
             </div>
-              <button
-                      onClick={() => navigate("/courses/new")}
-                      className="inline-flex items-center px-4 py-2 rounded-lg bg-purple-600 text-white hover:bg-purple-700 transition-colors duration-200"
-              >
-                      <PlusIcon className="h-4 w-4 mr-2" />
-                      New Course
+
+            {/* Top Right Actions */}
+            <div className="flex items-center gap-3 relative z-10">
+              <button className="px-4 py-2 text-sm font-medium text-white bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors shadow-sm">
+                Generate Report
+              </button>
+              <button className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-800 dark:text-gray-200 bg-white dark:bg-gray-800 border border-gray-800 dark:border-gray-500 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors shadow-sm">
+                <CheckCircle className="h-4 w-4" />
+                Create Quiz
               </button>
             </div>
           </div>
-        </div>
 
-              {/* Course Management Content */}
-              <div className="bg-white/50 dark:bg-gray-800/50 backdrop-blur-xl rounded-xl border border-gray-200/50 dark:border-gray-700/50">
-                <div className="p-6">
-                  <CourseManagement />
-                </div>
-        </div>
+          {/* Stats Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+            <StatCard
+              title="Total Students"
+              value="125"
+              icon={<Users className="h-6 w-6 text-blue-500 dark:text-blue-400" strokeWidth={1.5} />}
+              className="bg-blue-100 dark:bg-blue-900/10 backdrop-blur-xl border-blue-100 dark:border-blue-800/30"
+              decoration={<div className="absolute -bottom-6 -right-6 w-24 h-24 rounded-full bg-blue-200 dark:bg-blue-800/20"></div>}
+            />
+            <StatCard
+              title="Average Quiz Accuracy"
+              value="72%"
+              icon={<CheckCircle className="h-6 w-6 text-green-500 dark:text-green-400" strokeWidth={1.5} />}
+              trend="+ 5% ↑"
+              trendLabel="from last week"
+              className="bg-green-100 dark:bg-green-900/10 backdrop-blur-xl border-green-100 dark:border-green-800/30"
+              decoration={<div className="absolute -bottom-6 -right-6 w-24 h-24 rounded-full bg-green-200 dark:bg-green-800/20"></div>}
+            />
+            <StatCard
+              title="Quizzes Generated"
+              value="28"
+              icon={<DocumentText className="h-6 w-6 text-orange-500 dark:text-orange-400" strokeWidth={1.5} />}
+              description="This semester"
+              className="bg-amber-100 dark:bg-orange-900/10 backdrop-blur-xl border-orange-100 dark:border-orange-800/30"
+              decoration={<div className="absolute -bottom-6 -right-6 w-24 h-24 rounded-full bg-amber-200 dark:bg-orange-800/20"></div>}
+            />
+            <StatCard
+              title="Engagement Level"
+              value="78%"
+              icon={<TrendingUp className="h-6 w-6 text-purple-500 dark:text-purple-400 rotate-180" strokeWidth={1.5} />}
+              trend="- 3% ↓"
+              trendLabel="from last week"
+              className="bg-pink-100 dark:bg-purple-900/10 backdrop-blur-xl border-purple-100 dark:border-purple-800/30"
+              decoration={<div className="absolute -bottom-6 -right-6 w-24 h-24 rounded-full bg-pink-200 dark:bg-purple-800/20"></div>}
+            />
+          </div>
+
+          {/* Sub-navigation Tabs */}
+          <Tabs defaultValue="overview" className="w-full">
+            <div className="flex justify-center mb-6">
+              <TabsList className="bg-white/50 dark:bg-gray-800 backdrop-blur-xl border border-gray-200/50 dark:border-gray-700/50 p-1 rounded-lg">
+                <TabsTrigger value="overview" className="rounded-md px-6 text-gray-600 dark:text-gray-300 data-[state=active]:bg-white data-[state=active]:text-gray-900 dark:data-[state=active]:bg-gray-700 dark:data-[state=active]:text-white">Overview</TabsTrigger>
+                <TabsTrigger value="students" className="rounded-md px-6 text-gray-600 dark:text-gray-300 data-[state=active]:bg-white data-[state=active]:text-gray-900 dark:data-[state=active]:bg-gray-700 dark:data-[state=active]:text-white">Students</TabsTrigger>
+                <TabsTrigger value="quizzes" className="rounded-md px-6 text-gray-600 dark:text-gray-300 data-[state=active]:bg-white data-[state=active]:text-gray-900 dark:data-[state=active]:bg-gray-700 dark:data-[state=active]:text-white">Quizzes</TabsTrigger>
+              </TabsList>
             </div>
-          </TabsContent>
 
-          <TabsContent value="attendance">
-            <div className="space-y-6">
-              {/* Attendance Header */}
-              <div className="relative overflow-hidden bg-white/50 dark:bg-gray-800/50 backdrop-blur-xl rounded-xl border border-gray-200/50 dark:border-gray-700/50">
-                <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/5 to-emerald-500/0 dark:from-emerald-500/[0.05] dark:to-emerald-500/0"></div>
-                <div className="relative p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h2 className="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-emerald-600 to-emerald-400 dark:from-emerald-400 dark:to-emerald-300">
-                        Attendance Management
-                      </h2>
-                      <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-                        Track and manage student attendance
-                      </p>
-                    </div>
-                    <Badge variant="outline" className="font-normal bg-emerald-50/50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 border-emerald-200/50 dark:border-emerald-800/50">
-                      Today's Overview
-                    </Badge>
-                  </div>
-                </div>
+            <TabsContent value="overview" className="mt-0 focus-visible:outline-none focus-visible:ring-0">
+              {/* Charts Grid */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-8">
+                <MCQPerformanceChart />
+                <AIConceptHeatmap />
               </div>
 
-              {/* Attendance Content */}
-              <div className="bg-white/50 dark:bg-gray-800/50 backdrop-blur-xl rounded-xl border border-gray-200/50 dark:border-gray-700/50">
-                <div className="p-6">
-              <TeacherAttendance />
-            </div>
-              </div>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="quizzes">
-            <div className="space-y-6">
-              {/* Quiz Management Header */}
-              <div className="relative overflow-hidden bg-white/50 dark:bg-gray-800/50 backdrop-blur-xl rounded-xl border border-gray-200/50 dark:border-gray-700/50">
-                <div className="absolute inset-0 bg-gradient-to-r from-amber-500/5 to-amber-500/0 dark:from-amber-500/[0.05] dark:to-amber-500/0"></div>
-                <div className="relative p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h2 className="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-amber-600 to-amber-400 dark:from-amber-400 dark:to-amber-300">
-                        Quiz Management
-                      </h2>
-                      <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-                        Create and manage assessments
-                      </p>
+              {/* Smart Alerts & To-Dos */}
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Smart Alerts & To-Dos</h3>
+                  <button className="text-sm font-medium text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300">View All</button>
+                </div>
+                <div className="space-y-3">
+                  {[
+                    { title: "Low engagement in Section C", time: "2 hours ago", type: "warning" },
+                    { title: "Quiz not sent for yesterday's lecture", time: "5 hours ago", type: "action" },
+                    { title: "3 students missed 3 consecutive classes", time: "1 day ago", type: "critical" }
+                  ].map((alert, idx) => (
+                    <div key={idx} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-white/50 dark:bg-gray-800/50 backdrop-blur-xl border border-gray-200/50 dark:border-gray-700/50 rounded-xl hover:shadow-sm transition-all gap-4 sm:gap-0">
+                      <div className="flex items-center gap-4">
+                        <div className={`p-2.5 rounded-full ${alert.type === 'critical' ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400' : alert.type === 'warning' ? 'bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400' : 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'}`}>
+                          <ExclamationCircle className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-900 dark:text-gray-100">{alert.title}</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <Clock className="h-3.5 w-3.5 text-gray-500" />
+                            <p className="text-sm text-gray-500 dark:text-gray-400">{alert.time}</p>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4 sm:ml-4">
+                        <button className="text-sm font-medium text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200 transition-colors">Dismiss</button>
+                        <button className="px-4 py-2 text-sm font-medium text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors">
+                          Action
+                        </button>
+                      </div>
                     </div>
-                    <button
-                      onClick={() => navigate("/quiz-generator")}
-                      className="inline-flex items-center px-4 py-2 rounded-lg bg-amber-600 text-white hover:bg-amber-700 transition-colors duration-200"
-                    >
-                      <PlusIcon className="h-4 w-4 mr-2" />
-                      New Quiz
+                  ))}
+                </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="students" className="mt-0 focus-visible:outline-none focus-visible:ring-0">
+              <Card className="bg-white/50 dark:bg-gray-800/50 backdrop-blur-xl border-gray-200/50 dark:border-gray-700/50 overflow-hidden">
+                <CardHeader className="border-b border-gray-200/50 dark:border-gray-700/50 pb-4">
+                  <CardTitle className="text-lg font-semibold text-gray-900 dark:text-white">Student Progress Tracker</CardTitle>
+                </CardHeader>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
+                    <thead className="text-xs text-gray-700 uppercase bg-gray-50/50 dark:bg-gray-800/50 dark:text-gray-300 border-b border-gray-200/50 dark:border-gray-700/50">
+                      <tr>
+                        <th scope="col" className="px-6 py-4 font-semibold">Name</th>
+                        <th scope="col" className="px-6 py-4 font-semibold">Accuracy</th>
+                        <th scope="col" className="px-6 py-4 font-semibold">Quizzes</th>
+                        <th scope="col" className="px-6 py-4 font-semibold">Weak Areas</th>
+                        <th scope="col" className="px-6 py-4 text-right font-semibold">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200/50 dark:divide-gray-700/50">
+                      {[
+                        { name: "Alex Johnson", accuracy: "92%", quizzes: "14/15", weakArea: "Probability", status: "good" },
+                        { name: "Sarah Smith", accuracy: "65%", quizzes: "12/15", weakArea: "Calculus", status: "warning" },
+                        { name: "Michael Chang", accuracy: "48%", quizzes: "9/15", weakArea: "Linear Algebra", status: "critical" },
+                        { name: "Emily Davis", accuracy: "88%", quizzes: "15/15", weakArea: "None", status: "good" }
+                      ].map((student, idx) => (
+                        <tr key={idx} className="bg-white/30 dark:bg-transparent hover:bg-gray-50/50 dark:hover:bg-gray-800/50 transition-colors">
+                          <td className="px-6 py-4 font-medium text-gray-900 dark:text-white whitespace-nowrap">{student.name}</td>
+                          <td className="px-6 py-4">
+                            <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${student.status === 'good' ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border-green-200 dark:border-green-800' : student.status === 'warning' ? 'bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400 border-orange-200 dark:border-orange-800' : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800'}`}>
+                              {student.accuracy}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-gray-600 dark:text-gray-300">{student.quizzes}</td>
+                          <td className="px-6 py-4 text-gray-600 dark:text-gray-300">{student.weakArea}</td>
+                          <td className="px-6 py-4 text-right">
+                            <button className="px-4 py-2 text-sm font-medium text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors">
+                              Support
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="quizzes" className="mt-0 focus-visible:outline-none focus-visible:ring-0">
+              <Card className="bg-white/50 dark:bg-gray-800/50 backdrop-blur-xl border-gray-200/50 dark:border-gray-700/50">
+                <CardHeader className="border-b border-gray-200/50 dark:border-gray-700/50 pb-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                      <CardTitle className="text-lg font-semibold text-gray-900 dark:text-white">Quiz Review</CardTitle>
+                      <CardDescription className="mt-1 text-gray-500 dark:text-gray-400">Machine Learning Fundamentals Quiz</CardDescription>
+                    </div>
+                    <button className="px-4 py-2 text-sm font-medium text-white bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors shadow-sm self-start sm:self-auto flex items-center gap-2">
+                      <PlusIcon className="h-4 w-4" /> New Quiz
                     </button>
                   </div>
-                </div>
-              </div>
-
-              {/* Quiz Content */}
-              <div className="bg-white/50 dark:bg-gray-800/50 backdrop-blur-xl rounded-xl border border-gray-200/50 dark:border-gray-700/50">
-                <div className="p-6">
-              <MCQGenerator />
-                </div>
-              </div>
-            </div>
-          </TabsContent>
-        </Tabs>
+                </CardHeader>
+                <CardContent className="pt-6">
+                  <div className="space-y-4">
+                    {[
+                      { q: "1. What is the main difference between supervised and unsupervised learning?", correct: 85, incorrect: 15 },
+                      { q: "2. Which of the following is not a common activation function?", correct: 62, incorrect: 38 },
+                      { q: "3. Explain the bias-variance tradeoff in a few sentences.", correct: 45, incorrect: 55 },
+                      { q: "4. What is backpropagation used for in neural networks?", correct: 92, incorrect: 8 },
+                    ].map((question, idx) => (
+                      <div key={idx} className="p-5 bg-white/40 dark:bg-gray-800/40 border border-gray-200/50 dark:border-gray-700/50 rounded-xl hover:bg-white/60 dark:hover:bg-gray-800/60 transition-colors">
+                        <p className="font-medium text-gray-900 dark:text-gray-100 mb-4">{question.q}</p>
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-4 text-sm">
+                          <div className="flex items-center gap-2 text-green-700 dark:text-green-400 font-medium min-w-[120px]">
+                            <CheckCircle className="h-4.5 w-4.5" />
+                            <span>{question.correct}% Correct</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-red-700 dark:text-red-400 font-medium min-w-[120px]">
+                            <ExclamationCircle className="h-4.5 w-4.5" />
+                            <span>{question.incorrect}% Incorrect</span>
+                          </div>
+                          <div className="flex-1 w-full max-w-sm h-2.5 bg-gray-200 dark:bg-gray-700/50 rounded-full overflow-hidden flex sm:ml-4">
+                            <div style={{ width: `${question.correct}%` }} className="bg-green-500 dark:bg-green-400 transition-all duration-1000 ease-in-out"></div>
+                            <div style={{ width: `${question.incorrect}%` }} className="bg-red-500 dark:bg-red-400 transition-all duration-1000 ease-in-out"></div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
+        </div>
       </div>
     </div>
   );
