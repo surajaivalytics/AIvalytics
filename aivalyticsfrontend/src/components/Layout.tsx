@@ -14,6 +14,7 @@ import {
   ChevronRightIcon,
   BuildingLibraryIcon,
   CalendarIcon,
+  SparklesIcon,
 } from "@heroicons/react/24/outline";
 import { useAuth } from "../contexts/AuthContext";
 import { useTheme } from "../contexts/ThemeContext";
@@ -71,8 +72,8 @@ const NavItem = memo(
               ? "bg-gray-800 text-white"
               : "bg-blue-50 text-blue-700"
             : isDark
-            ? "text-gray-300 hover:bg-gray-800 hover:text-white"
-            : "text-gray-600 hover:bg-gray-100 hover:text-gray-900",
+              ? "text-gray-300 hover:bg-gray-800 hover:text-white"
+              : "text-gray-600 hover:bg-gray-100 hover:text-gray-900",
           "group flex items-center px-2 py-2 text-sm font-medium rounded-md transition-all duration-200 cursor-pointer font-secondary"
         )}
         onClick={onClick}
@@ -82,8 +83,8 @@ const NavItem = memo(
             item.current
               ? "text-blue-400"
               : isDark
-              ? "text-gray-400 group-hover:text-gray-300"
-              : "text-gray-500 group-hover:text-gray-700",
+                ? "text-gray-400 group-hover:text-gray-300"
+                : "text-gray-500 group-hover:text-gray-700",
             "mr-3 flex-shrink-0 h-6 w-6"
           )}
           aria-hidden="true"
@@ -116,9 +117,8 @@ const UserProfile = memo(
     isDark: boolean;
   }) => (
     <div
-      className={`flex items-center p-2 rounded-lg transition-colors duration-300 ${
-        isDark ? "bg-gray-800" : "bg-gray-100"
-      }`}
+      className={`flex items-center p-2 rounded-lg transition-colors duration-300 ${isDark ? "bg-gray-800" : "bg-gray-100"
+        }`}
     >
       <div className="h-10 w-10 rounded-full bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center shadow-lg">
         <span className="text-sm font-bold text-white font-primary">
@@ -127,16 +127,14 @@ const UserProfile = memo(
       </div>
       <div className="ml-3">
         <p
-          className={`text-sm font-medium transition-colors duration-300 font-primary ${
-            isDark ? "text-white" : "text-gray-900"
-          }`}
+          className={`text-sm font-medium transition-colors duration-300 font-primary ${isDark ? "text-white" : "text-gray-900"
+            }`}
         >
           {user?.username || "User"}
         </p>
         <p
-          className={`text-xs transition-colors duration-300 font-secondary ${
-            isDark ? "text-gray-300" : "text-gray-600"
-          }`}
+          className={`text-xs transition-colors duration-300 font-secondary ${isDark ? "text-gray-300" : "text-gray-600"
+            }`}
         >
           <span
             className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getRoleColor(
@@ -151,11 +149,10 @@ const UserProfile = memo(
       </div>
       <button
         onClick={handleLogout}
-        className={`ml-auto transition-colors duration-200 p-1 rounded-md ${
-          isDark
+        className={`ml-auto transition-colors duration-200 p-1 rounded-md ${isDark
             ? "text-gray-400 hover:text-white hover:bg-gray-700"
             : "text-gray-500 hover:text-gray-700 hover:bg-gray-200"
-        }`}
+          }`}
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -246,6 +243,12 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         icon: BookOpenIcon,
         current: location.pathname === "/my-courses",
       });
+      navItems.push({
+        name: "AI Quiz Generator",
+        href: "/quiz-generator",
+        icon: SparklesIcon,
+        current: location.pathname === "/quiz-generator",
+      });
     }
 
     // Only HOD gets "Class Management"
@@ -312,15 +315,13 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       {/* Sidebar for desktop - fixed positioning */}
       <div className="hidden md:flex md:w-64 md:flex-col md:fixed md:inset-y-0 z-30">
         <div
-          className={`flex min-h-0 flex-1 flex-col border-r transition-colors duration-300 ${
-            isDark ? "bg-gray-900 border-gray-800" : "bg-white border-gray-200"
-          }`}
+          className={`flex min-h-0 flex-1 flex-col border-r transition-colors duration-300 ${isDark ? "bg-gray-900 border-gray-800" : "bg-white border-gray-200"
+            }`}
         >
           <div className="flex flex-1 flex-col overflow-y-auto">
             <div
-              className={`flex items-center h-16 flex-shrink-0 px-4 transition-colors duration-300 ${
-                isDark ? "bg-gray-900" : "bg-white"
-              }`}
+              className={`flex items-center h-16 flex-shrink-0 px-4 transition-colors duration-300 ${isDark ? "bg-gray-900" : "bg-white"
+                }`}
             >
               <div className="h-10 w-10 flex items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 shadow-lg">
                 <LogoSVG />
@@ -365,9 +366,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             aria-hidden="true"
           />
           <div
-            className={`fixed inset-y-0 left-0 flex max-w-xs w-full flex-col transform transition-all duration-300 ${
-              isDark ? "bg-gray-900" : "bg-white"
-            }`}
+            className={`fixed inset-y-0 left-0 flex max-w-xs w-full flex-col transform transition-all duration-300 ${isDark ? "bg-gray-900" : "bg-white"
+              }`}
           >
             <div className="absolute top-0 right-0 -mr-12 pt-2">
               <button
@@ -380,9 +380,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               </button>
             </div>
             <div
-              className={`flex items-center h-16 flex-shrink-0 px-4 transition-colors duration-300 ${
-                isDark ? "bg-gray-900" : "bg-white"
-              }`}
+              className={`flex items-center h-16 flex-shrink-0 px-4 transition-colors duration-300 ${isDark ? "bg-gray-900" : "bg-white"
+                }`}
             >
               <div className="h-10 w-10 flex items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 shadow-lg">
                 <LogoSVG />
@@ -424,11 +423,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         {/* Mobile menu button - floating for mobile only */}
         <button
           type="button"
-          className={`md:hidden fixed top-4 left-4 z-50 inline-flex h-10 w-10 items-center justify-center rounded-md focus:outline-none transition-all duration-200 shadow-lg ${
-            isDark
+          className={`md:hidden fixed top-4 left-4 z-50 inline-flex h-10 w-10 items-center justify-center rounded-md focus:outline-none transition-all duration-200 shadow-lg ${isDark
               ? "bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700"
               : "bg-white text-gray-600 hover:text-gray-900 hover:bg-gray-50 border border-gray-200"
-          }`}
+            }`}
           onClick={openSidebar}
         >
           <span className="sr-only">Open sidebar</span>
@@ -437,9 +435,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
         {/* Main content area - improved scrolling */}
         <main
-          className={`flex-1 overflow-y-auto relative transition-colors duration-300 ${
-            isDark ? "bg-gray-900" : "bg-gray-50"
-          }`}
+          className={`flex-1 overflow-y-auto relative transition-colors duration-300 ${isDark ? "bg-gray-900" : "bg-gray-50"
+            }`}
         >
           <div className="h-full">
             <div className="px-6 py-6">{children}</div>

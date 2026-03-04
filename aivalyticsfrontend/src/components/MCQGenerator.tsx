@@ -1,9 +1,8 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { toast } from "react-hot-toast";
 import { useTheme } from "../contexts/ThemeContext";
 import { getThemedClasses } from "../utils/themeUtils";
 import {
-  CloudArrowUpIcon,
   AcademicCapIcon,
   SparklesIcon,
   TrashIcon,
@@ -12,19 +11,43 @@ import {
   QuestionMarkCircleIcon,
   UserGroupIcon,
   ChartBarIcon,
-  ChevronDownIcon,
   CheckCircleIcon,
+  DocumentArrowUpIcon,
+  XMarkIcon,
+  DocumentTextIcon,
 } from "@heroicons/react/24/outline";
-import { courseService } from "../services/courseApi";
-import { mcqService, Quiz } from "../services/mcqApi";
-import { Course } from "../types/course";
+import {
+  mcqService,
+  Quiz,
+  GenerateGeminiMCQRequest,
+  GenerateGeminiMCQFileRequest,
+} from "../services/mcqApi";
 import TeacherQuizSubmissions from "./TeacherQuizSubmissions";
 import QuizVerification from "./QuizVerification";
 
+const GEMINI_KEY_STORAGE = "gemini_api_key";
+
+type InputTab = "text" | "file";
+
+/** Returns a human-readable file size string */
+const formatBytes = (bytes: number): string => {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+const ACCEPTED_EXTENSIONS = [".pdf", ".docx", ".txt"];
+const ACCEPTED_MIME_TYPES = [
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "text/plain",
+];
+
 const MCQGenerator: React.FC = () => {
   const { isDark } = useTheme();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [courses, setCourses] = useState<Course[]>([]);
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -35,64 +58,43 @@ const MCQGenerator: React.FC = () => {
     totalPages: 0,
   });
 
-  // Cursor following effect states
-  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
-  const containerRef = useRef<HTMLDivElement>(null);
+  // Input mode
+  const [activeTab, setActiveTab] = useState<InputTab>("text");
 
-  // Form states
-  const [formData, setFormData] = useState({
-    course_id: "",
-    quiz_name: "",
-    num_questions: 20,
-    max_score: 100,
-    topics: "",
-  });
+  // Gemini API Key — stored in localStorage
+  const [apiKeyInput, setApiKeyInput] = useState<string>(
+    () => localStorage.getItem(GEMINI_KEY_STORAGE) || ""
+  );
+  const [savedApiKey, setSavedApiKey] = useState<string>(
+    () => localStorage.getItem(GEMINI_KEY_STORAGE) || ""
+  );
+  const [keySaved, setKeySaved] = useState<boolean>(
+    () => !!localStorage.getItem(GEMINI_KEY_STORAGE)
+  );
+  const [showApiKey, setShowApiKey] = useState(false);
+
+  // Text form
+  const [lectureContent, setLectureContent] = useState("");
+  const [numQuestions, setNumQuestions] = useState(10);
+  const [maxScore, setMaxScore] = useState(100);
+  const [topics, setTopics] = useState("");
+
+  // File form
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [dragActive, setDragActive] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
 
-  // Modal states
+  // Sub-views
   const [showQuizDetails, setShowQuizDetails] = useState(false);
   const [selectedQuiz, setSelectedQuiz] = useState<Quiz | null>(null);
   const [selectedQuizForSubmissions, setSelectedQuizForSubmissions] = useState<
     string | null
   >(null);
-
-  // Quiz verification states
   const [selectedQuizForVerification, setSelectedQuizForVerification] =
     useState<Quiz | null>(null);
 
-  // Mouse move handler for cursor following effect
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect();
-      setMousePosition({
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top,
-      });
-    }
-  };
-
   useEffect(() => {
-    loadCourses();
     loadQuizzes();
   }, []);
-
-  const loadCourses = async () => {
-    try {
-      setLoading(true);
-      const response = await courseService.getTeacherCourses({
-        page: 1,
-        limit: 100,
-      });
-      setCourses(response.courses || []);
-    } catch (error: any) {
-      console.error("Failed to load courses:", error);
-      toast.error("Failed to load courses");
-      setCourses([]);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const loadQuizzes = async (page = 1) => {
     try {
@@ -100,100 +102,63 @@ const MCQGenerator: React.FC = () => {
       const response = await mcqService.getTeacherQuizzes({ page, limit: 10 });
       setQuizzes(response.data.quizzes);
       setPagination(response.data.pagination);
-    } catch (error: any) {
+    } catch {
       toast.error("Failed to load quizzes");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleFileSelect = (file: File) => {
-    const allowedTypes = [
-      "application/pdf",
-      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      "text/plain",
-    ];
-
-    if (!allowedTypes.includes(file.type)) {
-      toast.error("Please select a PDF, PPTX, DOCX, or TXT file");
+  const handleSaveKey = () => {
+    const trimmed = apiKeyInput.trim();
+    if (!trimmed) {
+      toast.error("Please enter a valid Gemini API key");
       return;
     }
-
-    if (file.size > 10 * 1024 * 1024) {
-      toast.error("File size must be less than 10MB");
-      return;
-    }
-
-    setSelectedFile(file);
+    localStorage.setItem(GEMINI_KEY_STORAGE, trimmed);
+    setSavedApiKey(trimmed);
+    setKeySaved(true);
+    toast.success("API key saved in your browser");
   };
 
-  const handleDrag = (e: React.DragEvent) => {
+  const handleClearKey = () => {
+    localStorage.removeItem(GEMINI_KEY_STORAGE);
+    setApiKeyInput("");
+    setSavedApiKey("");
+    setKeySaved(false);
+  };
+
+  // ── Text generation ──────────────────────────────────────────────────────
+  const handleGenerateText = async (e: React.FormEvent) => {
     e.preventDefault();
-    e.stopPropagation();
-    if (e.type === "dragenter" || e.type === "dragover") {
-      setDragActive(true);
-    } else if (e.type === "dragleave") {
-      setDragActive(false);
-    }
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleFileSelect(e.dataTransfer.files[0]);
-    }
-  };
-
-  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      handleFileSelect(e.target.files[0]);
-    }
-  };
-
-  const handleGenerateMCQ = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!selectedFile) {
-      toast.error("Please select a file");
+    if (!savedApiKey.trim()) {
+      toast.error("Please save your Gemini API key first");
       return;
     }
-
-    if (!formData.course_id) {
-      toast.error("Please select a course");
-      return;
-    }
-
-    if (!formData.quiz_name.trim()) {
-      toast.error("Please enter a quiz name");
+    if (lectureContent.trim().length < 20) {
+      toast.error("Please enter at least 20 characters of lecture content");
       return;
     }
 
     try {
       setGenerating(true);
-      await mcqService.generateMCQ({
-        ...formData,
-        file: selectedFile,
-      });
-
-      toast.success(
-        "MCQ quiz generated successfully! Please verify and activate the quiz before students can take it."
-      );
-
-      // Reset form
-      setFormData({
+      const payload: GenerateGeminiMCQRequest = {
         course_id: "",
         quiz_name: "",
-        num_questions: 20,
-        max_score: 100,
-        topics: "",
-      });
-      setSelectedFile(null);
-
-      // Reload quizzes
+        lecture_content: lectureContent,
+        num_questions: numQuestions,
+        max_score: maxScore,
+        topics,
+        gemini_api_key: savedApiKey,
+      };
+      await mcqService.generateMCQFromText(payload);
+      toast.success(
+        "Quiz generated! Verify and activate before students can take it."
+      );
+      setLectureContent("");
+      setTopics("");
+      setNumQuestions(10);
+      setMaxScore(100);
       loadQuizzes();
     } catch (error: any) {
       toast.error(error.message || "Failed to generate MCQ");
@@ -202,419 +167,441 @@ const MCQGenerator: React.FC = () => {
     }
   };
 
-  const handleDeleteQuiz = async (quizId: string, quizName: string) => {
-    if (!window.confirm(`Are you sure you want to delete "${quizName}"?`)) {
+  // ── File handling ────────────────────────────────────────────────────────
+  const validateAndSetFile = (file: File) => {
+    const ext = "." + file.name.split(".").pop()?.toLowerCase();
+    if (
+      !ACCEPTED_MIME_TYPES.includes(file.type) &&
+      !ACCEPTED_EXTENSIONS.includes(ext)
+    ) {
+      toast.error("Invalid file type. Please upload a PDF, DOCX, or TXT file.");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("File too large. Maximum size is 10 MB.");
+      return;
+    }
+    setSelectedFile(file);
+  };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) validateAndSetFile(file);
+    // reset value so the same file can be re-selected again
+    e.target.value = "";
+  };
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      setIsDragging(false);
+      const file = e.dataTransfer.files?.[0];
+      if (file) validateAndSetFile(file);
+    },
+    []
+  );
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = () => setIsDragging(false);
+
+  // File icon by extension
+  const fileIcon = selectedFile ? (
+    <DocumentTextIcon className="h-8 w-8 text-indigo-500 flex-shrink-0" />
+  ) : null;
+
+  // ── File generation ───────────────────────────────────────────────────────
+  const handleGenerateFile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!savedApiKey.trim()) {
+      toast.error("Please save your Gemini API key first");
+      return;
+    }
+    if (!selectedFile) {
+      toast.error("Please select a file to upload");
       return;
     }
 
     try {
-      await mcqService.deleteQuiz(quizId);
-      toast.success("Quiz deleted successfully");
+      setGenerating(true);
+      const payload: GenerateGeminiMCQFileRequest = {
+        file: selectedFile,
+        num_questions: numQuestions,
+        max_score: maxScore,
+        topics,
+        gemini_api_key: savedApiKey,
+      };
+      await mcqService.generateMCQFromFile(payload);
+      toast.success(
+        "Quiz generated from file! Verify and activate before students can take it."
+      );
+      setSelectedFile(null);
+      setTopics("");
+      setNumQuestions(10);
+      setMaxScore(100);
       loadQuizzes();
     } catch (error: any) {
-      toast.error("Failed to delete quiz");
+      toast.error(error.message || "Failed to generate MCQ from file");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleDeleteQuiz = async (quizId: string, quizName: string) => {
+    if (!window.confirm(`Delete "${quizName}"?`)) return;
+    try {
+      await mcqService.deleteQuiz(quizId);
+      toast.success("Quiz deleted");
       loadQuizzes();
+    } catch {
+      toast.error("Failed to delete quiz");
     }
   };
 
-  const handleViewQuizDetails = (quiz: Quiz) => {
-    setSelectedQuiz(quiz);
-    setShowQuizDetails(true);
-  };
-
-  const viewQuizSubmissions = (quizId: string) => {
-    setSelectedQuizForSubmissions(quizId);
-  };
-
-  const handleBackFromSubmissions = () => {
-    setSelectedQuizForSubmissions(null);
-  };
-
-  const handleVerifyQuiz = (quiz: Quiz) => {
-    setSelectedQuizForVerification(quiz);
-  };
-
-  const handleBackFromVerification = () => {
-    setSelectedQuizForVerification(null);
-  };
-
-  const handleQuizUpdated = () => {
-    loadQuizzes();
-    setSelectedQuizForVerification(null);
-  };
-
-  const getFileIcon = (fileName: string) => {
-    const extension = fileName.split(".").pop()?.toLowerCase();
-    switch (extension) {
-      case "pdf":
-        return "📄";
-      case "pptx":
-        return "📊";
-      case "docx":
-        return "📝";
-      case "txt":
-        return "📄";
-      default:
-        return "📄";
-    }
-  };
-
-  // If viewing submissions, show the submissions component
   if (selectedQuizForSubmissions) {
     return (
       <TeacherQuizSubmissions
         quizId={selectedQuizForSubmissions}
-        onBack={handleBackFromSubmissions}
+        onBack={() => setSelectedQuizForSubmissions(null)}
       />
     );
   }
 
-  // If viewing quiz verification, show the verification component
   if (selectedQuizForVerification) {
     return (
       <QuizVerification
         quiz={selectedQuizForVerification}
-        onBack={handleBackFromVerification}
-        onQuizUpdated={handleQuizUpdated}
+        onBack={() => setSelectedQuizForVerification(null)}
+        onQuizUpdated={() => {
+          loadQuizzes();
+          setSelectedQuizForVerification(null);
+        }}
       />
     );
   }
 
+  const inputCls = `w-full px-3 py-2.5 rounded-lg border text-sm transition focus:outline-none focus:ring-2 focus:ring-indigo-400 ${getThemedClasses(
+    isDark,
+    "bg-white border-gray-300 text-gray-900 placeholder-gray-400",
+    "bg-gray-700/60 border-gray-600 text-white placeholder-gray-500"
+  )}`;
+
+  const labelCls = `block text-sm font-medium mb-1.5 ${getThemedClasses(
+    isDark,
+    "text-gray-700",
+    "text-gray-300"
+  )}`;
+
+  const isFileTab = activeTab === "file";
+
   return (
     <div
       ref={containerRef}
-      onMouseMove={handleMouseMove}
-      className={`min-h-screen p-4 sm:p-6 lg:p-8 relative overflow-hidden ${getThemedClasses(
+      className={`min-h-screen p-4 sm:p-6 lg:p-8 ${getThemedClasses(
         isDark,
         "bg-gray-50",
         "bg-gray-900"
       )}`}
     >
-      {isDark && (
-        <div
-          className="pointer-events-none absolute -inset-px transition-opacity duration-300 opacity-0 group-hover:opacity-100"
-          style={{
-            background: `radial-gradient(600px circle at ${mousePosition.x}px ${mousePosition.y}px, rgba(147, 51, 234, 0.1), transparent 40%)`,
-          }}
-        />
-      )}
+      <div className="max-w-3xl mx-auto space-y-6">
+        {/* Page Heading */}
+        <h1
+          className={`text-2xl font-bold ${getThemedClasses(
+            isDark,
+            "text-gray-900",
+            "text-white"
+          )}`}
+        >
+          AI Quiz Generator
+        </h1>
 
-      <div className="max-w-7xl mx-auto">
-        <div className="space-y-12">
-          {/* Quiz Generation Form */}
+        {/* Generator Card */}
+        <div
+          className={`rounded-2xl border shadow-sm overflow-hidden ${getThemedClasses(
+            isDark,
+            "bg-white border-gray-200",
+            "bg-gray-800 border-gray-700/50"
+          )}`}
+        >
+          {/* Card Header */}
           <div
-            className={`relative rounded-2xl p-6 sm:p-8 border shadow-lg ${getThemedClasses(
+            className={`px-6 py-5 border-b ${getThemedClasses(
               isDark,
-              "bg-white/70 border-gray-200 shadow-gray-200/40",
-              "bg-gray-800/60 border-gray-700/50 shadow-black/20"
+              "border-gray-100",
+              "border-gray-700/50"
             )}`}
           >
-            <div
-              className={`absolute inset-0 bg-grid-pattern opacity-10 ${getThemedClasses(
-                isDark,
-                "text-gray-300",
-                "text-gray-600"
-              )}`}
-              style={{
-                maskImage:
-                  "linear-gradient(to bottom, white 10%, transparent 80%)",
-              }}
-            />
-            <div className="relative">
-              <div className="flex items-center mb-6">
-                <div
-                  className={`p-3 rounded-lg mr-4 ${getThemedClasses(
+            <div className="flex items-start gap-3">
+              <div
+                className={`mt-0.5 p-2 rounded-lg ${getThemedClasses(
+                  isDark,
+                  "bg-indigo-50",
+                  "bg-indigo-900/40"
+                )}`}
+              >
+                <SparklesIcon
+                  className={`h-5 w-5 ${getThemedClasses(
                     isDark,
-                    "bg-indigo-100",
-                    "bg-indigo-900/50"
+                    "text-indigo-600",
+                    "text-indigo-400"
                   )}`}
-                >
-                  <AcademicCapIcon
-                    className={`h-6 w-6 ${getThemedClasses(
-                      isDark,
-                      "text-indigo-600",
-                      "text-indigo-300"
-                    )}`}
-                  />
-                </div>
-                <h1
-                  className={`text-2xl font-bold ${getThemedClasses(
+                />
+              </div>
+              <div>
+                <h2
+                  className={`text-base font-semibold ${getThemedClasses(
                     isDark,
                     "text-gray-900",
                     "text-white"
                   )}`}
                 >
-                  Generate New Quiz
-                </h1>
+                  AI Quiz Generator
+                </h2>
+                <p
+                  className={`text-sm mt-0.5 ${getThemedClasses(
+                    isDark,
+                    "text-gray-500",
+                    "text-gray-400"
+                  )}`}
+                >
+                  Generate quiz questions from your lecture content or topic
+                  description using{" "}
+                  <a
+                    href="https://aistudio.google.com/app/apikey"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-indigo-500 hover:underline"
+                  >
+                    Google's Gemini AI
+                  </a>
+                </p>
               </div>
+            </div>
+          </div>
 
-              <form onSubmit={handleGenerateMCQ} className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Course Selection */}
-                  <div>
-                    <label
-                      htmlFor="course_id"
-                      className={`block text-sm font-medium mb-2 ${getThemedClasses(
-                        isDark,
-                        "text-gray-700",
-                        "text-gray-300"
-                      )}`}
-                    >
-                      Select Course <span className="text-red-500">*</span>
-                    </label>
-                    <div className="relative">
-                      <select
-                        id="course_id"
-                        value={formData.course_id}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            course_id: e.target.value,
-                          })
-                        }
-                        className={`w-full appearance-none pl-3 pr-10 py-2.5 text-base border rounded-lg transition-all duration-200 focus:ring-2 focus:ring-offset-2 ${getThemedClasses(
-                          isDark,
-                          "bg-white text-gray-900 border-gray-300 focus:border-indigo-500 focus:ring-indigo-200",
-                          "bg-gray-700 text-white border-gray-600 focus:border-indigo-500 focus:ring-indigo-500/50"
-                        )}`}
-                        required
-                      >
-                        <option value="" disabled>
-                          Choose a course...
-                        </option>
-                        {courses.map((course) => (
-                          <option key={course.id} value={course.id}>
-                            {course.name}
-                          </option>
-                        ))}
-                      </select>
-                      <div
-                        className={`pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 ${getThemedClasses(
-                          isDark,
-                          "text-gray-700",
-                          "text-gray-300"
-                        )}`}
-                      >
-                        <ChevronDownIcon className="h-5 w-5" />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Quiz Name */}
-                  <div>
-                    <label
-                      htmlFor="quiz_name"
-                      className={`block text-sm font-medium mb-2 ${getThemedClasses(
-                        isDark,
-                        "text-gray-700",
-                        "text-gray-300"
-                      )}`}
-                    >
-                      Quiz Name <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      id="quiz_name"
-                      value={formData.quiz_name}
-                      onChange={(e) =>
-                        setFormData({ ...formData, quiz_name: e.target.value })
-                      }
-                      placeholder="Enter quiz name..."
-                      className={`w-full px-3 py-2.5 text-base border rounded-lg transition-all duration-200 focus:ring-2 focus:ring-offset-2 ${getThemedClasses(
-                        isDark,
-                        "bg-white text-gray-900 border-gray-300 focus:border-indigo-500 focus:ring-indigo-200",
-                        "bg-gray-700 text-white border-gray-600 focus:border-indigo-500 focus:ring-indigo-500/50"
-                      )}`}
-                      required
-                    />
-                  </div>
-                </div>
-
-                {/* File Upload */}
-                <div>
-                  <label
-                    className={`block text-sm font-medium mb-2 ${getThemedClasses(
+          <div className="px-6 py-6 space-y-6">
+            {/* Gemini API Key Card */}
+            <div
+              className={`rounded-xl p-5 border ${getThemedClasses(
+                isDark,
+                "bg-indigo-50/50 border-indigo-100",
+                "bg-indigo-950/20 border-indigo-800/30"
+              )}`}
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-base">🔑</span>
+                <h3
+                  className={`font-semibold text-sm ${getThemedClasses(
+                    isDark,
+                    "text-gray-800",
+                    "text-gray-200"
+                  )}`}
+                >
+                  Gemini API Key Required
+                </h3>
+                {keySaved && (
+                  <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">
+                    ✓ Saved
+                  </span>
+                )}
+              </div>
+              <p
+                className={`text-xs mb-3 ${getThemedClasses(
+                  isDark,
+                  "text-gray-500",
+                  "text-gray-400"
+                )}`}
+              >
+                To generate AI-powered questions, please enter your Google
+                Gemini API key. You can obtain a key from the{" "}
+                <a
+                  href="https://aistudio.google.com/app/apikey"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-indigo-500 hover:underline"
+                >
+                  Google AI Studio
+                </a>
+                .
+              </p>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <input
+                    type={showApiKey ? "text" : "password"}
+                    value={apiKeyInput}
+                    onChange={(e) => setApiKeyInput(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleSaveKey()}
+                    placeholder="Enter your Gemini API key"
+                    className={`${inputCls} pr-14 font-mono placeholder:font-sans`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowApiKey((v) => !v)}
+                    className={`absolute right-3 top-1/2 -translate-y-1/2 text-xs ${getThemedClasses(
                       isDark,
-                      "text-gray-700",
-                      "text-gray-300"
+                      "text-gray-400 hover:text-gray-600",
+                      "text-gray-500 hover:text-gray-300"
                     )}`}
                   >
-                    Upload Course Material{" "}
-                    <span className="text-red-500">*</span>
-                  </label>
-                  <div
-                    onDragEnter={handleDrag}
-                    onDragOver={handleDrag}
-                    onDragLeave={handleDrag}
-                    onDrop={handleDrop}
-                    className={`relative flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-lg cursor-pointer transition-all duration-300 ${
-                      dragActive
-                        ? getThemedClasses(
-                            isDark,
-                            "border-indigo-600 bg-indigo-50",
-                            "border-indigo-400 bg-gray-700/50"
-                          )
-                        : getThemedClasses(
-                            isDark,
-                            "border-gray-300 bg-white hover:bg-gray-50",
-                            "border-gray-600 bg-gray-700/20 hover:bg-gray-700/40"
-                          )
-                    }`}
+                    {showApiKey ? "Hide" : "Show"}
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSaveKey}
+                  className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-lg transition whitespace-nowrap"
+                >
+                  Save Key
+                </button>
+                {keySaved && (
+                  <button
+                    type="button"
+                    onClick={handleClearKey}
+                    className={`px-3 py-2.5 text-sm rounded-lg border transition ${getThemedClasses(
+                      isDark,
+                      "border-gray-300 text-gray-500 hover:bg-gray-100",
+                      "border-gray-600 text-gray-400 hover:bg-gray-700"
+                    )}`}
                   >
-                    <div className="flex flex-col items-center justify-center pt-5 pb-6 text-center">
-                      <CloudArrowUpIcon
-                        className={`w-10 h-10 mb-3 ${getThemedClasses(
-                          isDark,
-                          "text-gray-400",
-                          "text-gray-500"
-                        )}`}
-                      />
-                      <p
-                        className={`mb-2 text-sm ${getThemedClasses(
-                          isDark,
-                          "text-gray-500",
-                          "text-gray-400"
-                        )}`}
-                      >
-                        <span className="font-semibold">
-                          Drop your file here
-                        </span>
-                        , or{" "}
-                        <button
-                          type="button"
-                          onClick={() =>
-                            document.getElementById("file-upload")?.click()
-                          }
-                          className="font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
-                        >
-                          browse
-                        </button>
-                      </p>
-                      <p
-                        className={`text-xs ${getThemedClasses(
-                          isDark,
-                          "text-gray-500",
-                          "text-gray-400"
-                        )}`}
-                      >
-                        Supports PDF, PPTX, DOCX, TXT files up to 10MB
-                      </p>
-                    </div>
-                    <input
-                      id="file-upload"
-                      type="file"
-                      className="hidden"
-                      onChange={handleFileInputChange}
-                    />
-                  </div>
-                  {selectedFile && (
-                    <div
-                      className={`mt-3 flex items-center justify-between p-3 rounded-lg ${getThemedClasses(
-                        isDark,
-                        "bg-gray-100",
-                        "bg-gray-700"
-                      )}`}
-                    >
-                      <div className="flex items-center">
-                        {getFileIcon(selectedFile.name)}
-                        <span
-                          className={`ml-2 text-sm font-medium ${getThemedClasses(
-                            isDark,
-                            "text-gray-700",
-                            "text-gray-200"
-                          )}`}
-                        >
-                          {selectedFile.name}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedFile(null)}
-                        className={`p-1 rounded-full ${getThemedClasses(
-                          isDark,
-                          "text-gray-400 hover:bg-gray-200",
-                          "text-gray-500 hover:bg-gray-600"
-                        )}`}
-                      >
-                        <TrashIcon className="h-5 w-5" />
-                      </button>
-                    </div>
-                  )}
+                    Clear
+                  </button>
+                )}
+              </div>
+              <p
+                className={`mt-2 text-xs ${getThemedClasses(
+                  isDark,
+                  "text-gray-400",
+                  "text-gray-500"
+                )}`}
+              >
+                Your API key will be stored locally in your browser.
+              </p>
+            </div>
+
+            {/* Input Mode Tabs */}
+            <div
+              className={`flex rounded-xl p-1 gap-1 ${getThemedClasses(
+                isDark,
+                "bg-gray-100",
+                "bg-gray-700/50"
+              )}`}
+            >
+              <button
+                type="button"
+                onClick={() => setActiveTab("text")}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-lg text-sm font-medium transition-all ${activeTab === "text"
+                  ? getThemedClasses(
+                    isDark,
+                    "bg-white text-indigo-600 shadow-sm",
+                    "bg-gray-800 text-indigo-400 shadow-sm"
+                  )
+                  : getThemedClasses(
+                    isDark,
+                    "text-gray-500 hover:text-gray-700",
+                    "text-gray-400 hover:text-gray-200"
+                  )
+                  }`}
+              >
+                <DocumentTextIcon className="h-4 w-4" />
+                Paste Text
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab("file")}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-lg text-sm font-medium transition-all ${activeTab === "file"
+                  ? getThemedClasses(
+                    isDark,
+                    "bg-white text-indigo-600 shadow-sm",
+                    "bg-gray-800 text-indigo-400 shadow-sm"
+                  )
+                  : getThemedClasses(
+                    isDark,
+                    "text-gray-500 hover:text-gray-700",
+                    "text-gray-400 hover:text-gray-200"
+                  )
+                  }`}
+              >
+                <DocumentArrowUpIcon className="h-4 w-4" />
+                Upload File
+              </button>
+            </div>
+
+            {/* ── TEXT TAB ─────────────────────────────────────────────── */}
+            {activeTab === "text" && (
+              <form onSubmit={handleGenerateText} className="space-y-5">
+                {/* Lecture Content */}
+                <div>
+                  <label className={labelCls}>
+                    Lecture Content or Topic Description
+                  </label>
+                  <textarea
+                    rows={7}
+                    value={lectureContent}
+                    onChange={(e) => setLectureContent(e.target.value)}
+                    placeholder="Paste your lecture notes, syllabus content, or describe the topic in detail..."
+                    className={`${inputCls} resize-y`}
+                    required
+                  />
+                  <p
+                    className={`mt-1 text-xs ${getThemedClasses(
+                      isDark,
+                      "text-gray-400",
+                      "text-gray-500"
+                    )}`}
+                  >
+                    {lectureContent.length} characters · Minimum 20 required
+                  </p>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Number of Questions */}
+                {/* Number of Questions + Max Score */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                   <div>
-                    <label
-                      htmlFor="num_questions"
-                      className={`block text-sm font-medium mb-2 ${getThemedClasses(
-                        isDark,
-                        "text-gray-700",
-                        "text-gray-300"
-                      )}`}
-                    >
+                    <label htmlFor="num_questions_text" className={labelCls}>
                       Number of Questions
                     </label>
                     <input
+                      id="num_questions_text"
                       type="number"
-                      id="num_questions"
-                      value={formData.num_questions}
+                      min={1}
+                      max={50}
+                      value={numQuestions}
                       onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          num_questions: parseInt(e.target.value, 10),
-                        })
+                        setNumQuestions(parseInt(e.target.value, 10))
                       }
-                      className={`w-full px-3 py-2.5 text-base border rounded-lg transition-all duration-200 focus:ring-2 focus:ring-offset-2 ${getThemedClasses(
-                        isDark,
-                        "bg-white text-gray-900 border-gray-300 focus:border-indigo-500 focus:ring-indigo-200",
-                        "bg-gray-700 text-white border-gray-600 focus:border-indigo-500 focus:ring-indigo-500/50"
-                      )}`}
+                      className={inputCls}
                     />
                     <p
                       className={`mt-1 text-xs ${getThemedClasses(
                         isDark,
-                        "text-gray-500",
-                        "text-gray-400"
+                        "text-gray-400",
+                        "text-gray-500"
                       )}`}
                     >
-                      Recommended: 10-25 questions
+                      Recommended: 10–25
                     </p>
                   </div>
-
-                  {/* Maximum Score */}
                   <div>
-                    <label
-                      htmlFor="max_score"
-                      className={`block text-sm font-medium mb-2 ${getThemedClasses(
-                        isDark,
-                        "text-gray-700",
-                        "text-gray-300"
-                      )}`}
-                    >
+                    <label htmlFor="max_score_text" className={labelCls}>
                       Maximum Score
                     </label>
                     <input
+                      id="max_score_text"
                       type="number"
-                      id="max_score"
-                      value={formData.max_score}
+                      min={1}
+                      value={maxScore}
                       onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          max_score: parseInt(e.target.value, 10),
-                        })
+                        setMaxScore(parseInt(e.target.value, 10))
                       }
-                      className={`w-full px-3 py-2.5 text-base border rounded-lg transition-all duration-200 focus:ring-2 focus:ring-offset-2 ${getThemedClasses(
-                        isDark,
-                        "bg-white text-gray-900 border-gray-300 focus:border-indigo-500 focus:ring-indigo-200",
-                        "bg-gray-700 text-white border-gray-600 focus:border-indigo-500 focus:ring-indigo-500/50"
-                      )}`}
+                      className={inputCls}
                     />
                     <p
                       className={`mt-1 text-xs ${getThemedClasses(
                         isDark,
-                        "text-gray-500",
-                        "text-gray-400"
+                        "text-gray-400",
+                        "text-gray-500"
                       )}`}
                     >
                       Total points for the quiz
@@ -622,210 +609,393 @@ const MCQGenerator: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Specific Topics */}
+                {/* Topics (optional) */}
                 <div>
-                  <label
-                    htmlFor="topics"
-                    className={`block text-sm font-medium mb-2 ${getThemedClasses(
-                      isDark,
-                      "text-gray-700",
-                      "text-gray-300"
-                    )}`}
-                  >
-                    Specific Topics (Optional)
-                  </label>
-                  <textarea
-                    id="topics"
-                    rows={3}
-                    value={formData.topics}
-                    onChange={(e) =>
-                      setFormData({ ...formData, topics: e.target.value })
-                    }
-                    placeholder="Enter specific topics to focus on (e.g., 'data structures, algorithms, complexity analysis')..."
-                    className={`w-full px-3 py-2.5 text-base border rounded-lg transition-all duration-200 focus:ring-2 focus:ring-offset-2 ${getThemedClasses(
-                      isDark,
-                      "bg-white text-gray-900 border-gray-300 focus:border-indigo-500 focus:ring-indigo-200",
-                      "bg-gray-700 text-white border-gray-600 focus:border-indigo-500 focus:ring-indigo-500/50"
-                    )}`}
-                  />
-                  <p
-                    className={`mt-1 text-xs ${getThemedClasses(
-                      isDark,
-                      "text-gray-500",
-                      "text-gray-400"
-                    )}`}
-                  >
-                    Leave empty to generate questions from all content
-                  </p>
-                </div>
-
-                {/* Submit Button */}
-                <div className="flex justify-end">
-                  <button
-                    type="submit"
-                    disabled={generating}
-                    className={`inline-flex items-center justify-center px-8 py-3 font-semibold rounded-lg text-white transition-all duration-300 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed ${
-                      generating
-                        ? "bg-gray-500"
-                        : getThemedClasses(
-                            isDark,
-                            "bg-indigo-600 hover:bg-indigo-700",
-                            "bg-indigo-500 hover:bg-indigo-600"
-                          )
-                    }`}
-                  >
-                    {generating ? (
-                      <>
-                        <svg
-                          className="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
-                          xmlns="http://www.w3.org/2000/svg"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                        >
-                          <circle
-                            className="opacity-25"
-                            cx="12"
-                            cy="12"
-                            r="10"
-                            stroke="currentColor"
-                            strokeWidth="4"
-                          ></circle>
-                          <path
-                            className="opacity-75"
-                            fill="currentColor"
-                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                          ></path>
-                        </svg>
-                        Generating...
-                      </>
-                    ) : (
-                      <>
-                        <SparklesIcon className="h-5 w-5 mr-2" />
-                        Generate AI Quiz
-                      </>
-                    )}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-
-          {/* Generated Quizzes List */}
-          <div
-            className={`relative rounded-2xl p-6 sm:p-8 border shadow-lg ${getThemedClasses(
-              isDark,
-              "bg-white/70 border-gray-200 shadow-gray-200/40",
-              "bg-gray-800/60 border-gray-700/50 shadow-black/20"
-            )}`}
-          >
-            <div className="relative">
-              <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center">
-                  <div
-                    className={`p-3 rounded-lg mr-4 ${getThemedClasses(
-                      isDark,
-                      "bg-teal-100",
-                      "bg-teal-900/50"
-                    )}`}
-                  >
-                    <QuestionMarkCircleIcon
-                      className={`h-6 w-6 ${getThemedClasses(
-                        isDark,
-                        "text-teal-600",
-                        "text-teal-300"
-                      )}`}
-                    />
-                  </div>
-                  <h1
-                    className={`text-2xl font-bold ${getThemedClasses(
-                      isDark,
-                      "text-gray-900",
-                      "text-white"
-                    )}`}
-                  >
-                    Generated Quizzes
-                  </h1>
-                </div>
-                {loading && (
-                  <div className="flex items-center text-sm">
-                    <svg
-                      className={`animate-spin h-5 w-5 mr-2 ${getThemedClasses(
-                        isDark,
-                        "text-gray-600",
-                        "text-gray-300"
-                      )}`}
-                      xmlns="http://www.w3.org/2000/svg"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                    >
-                      <circle
-                        className="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        strokeWidth="4"
-                      ></circle>
-                      <path
-                        className="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                      ></path>
-                    </svg>
-                    <span>Loading...</span>
-                  </div>
-                )}
-              </div>
-              {/* Quiz List */}
-              <div className="space-y-4">
-                {quizzes.length > 0 ? (
-                  quizzes.map((quiz) => (
-                    <QuizCard
-                      key={quiz.id}
-                      quiz={quiz}
-                      onDelete={handleDeleteQuiz}
-                      onViewDetails={handleViewQuizDetails}
-                      onVerify={handleVerifyQuiz}
-                      onViewSubmissions={viewQuizSubmissions}
-                    />
-                  ))
-                ) : (
-                  <div
-                    className={`text-center py-10 px-6 rounded-lg ${getThemedClasses(
-                      isDark,
-                      "bg-gray-50",
-                      "bg-gray-700/50"
-                    )}`}
-                  >
-                    <QuestionMarkCircleIcon
-                      className={`mx-auto h-12 w-12 ${getThemedClasses(
+                  <label htmlFor="topics_text" className={labelCls}>
+                    Specific Topics{" "}
+                    <span
+                      className={`font-normal ${getThemedClasses(
                         isDark,
                         "text-gray-400",
                         "text-gray-500"
                       )}`}
+                    >
+                      (Optional)
+                    </span>
+                  </label>
+                  <input
+                    id="topics_text"
+                    type="text"
+                    value={topics}
+                    onChange={(e) => setTopics(e.target.value)}
+                    placeholder="e.g. data structures, sorting algorithms..."
+                    className={inputCls}
+                  />
+                  <p
+                    className={`mt-1 text-xs ${getThemedClasses(
+                      isDark,
+                      "text-gray-400",
+                      "text-gray-500"
+                    )}`}
+                  >
+                    Leave empty to cover all content
+                  </p>
+                </div>
+
+                {/* Submit */}
+                <div className="flex justify-end">
+                  <GenerateButton generating={generating} />
+                </div>
+              </form>
+            )}
+
+            {/* ── FILE TAB ─────────────────────────────────────────────── */}
+            {activeTab === "file" && (
+              <form onSubmit={handleGenerateFile} className="space-y-5">
+                {/* Drop zone */}
+                {!selectedFile ? (
+                  <div
+                    onDrop={handleDrop}
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onClick={() => fileInputRef.current?.click()}
+                    className={`relative flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed py-12 px-6 cursor-pointer transition-all ${isDragging
+                      ? getThemedClasses(
+                        isDark,
+                        "border-indigo-400 bg-indigo-50",
+                        "border-indigo-500 bg-indigo-900/20"
+                      )
+                      : getThemedClasses(
+                        isDark,
+                        "border-gray-300 hover:border-indigo-400 hover:bg-indigo-50/40",
+                        "border-gray-600 hover:border-indigo-500 hover:bg-indigo-900/10"
+                      )
+                      }`}
+                  >
+                    <div
+                      className={`p-3 rounded-full ${getThemedClasses(
+                        isDark,
+                        "bg-indigo-100",
+                        "bg-indigo-900/40"
+                      )}`}
+                    >
+                      <DocumentArrowUpIcon
+                        className={`h-7 w-7 ${getThemedClasses(
+                          isDark,
+                          "text-indigo-600",
+                          "text-indigo-400"
+                        )}`}
+                      />
+                    </div>
+                    <div className="text-center">
+                      <p
+                        className={`font-semibold text-sm ${getThemedClasses(
+                          isDark,
+                          "text-gray-700",
+                          "text-gray-200"
+                        )}`}
+                      >
+                        {isDragging
+                          ? "Drop your file here"
+                          : "Drag & drop or click to upload"}
+                      </p>
+                      <p
+                        className={`text-xs mt-1 ${getThemedClasses(
+                          isDark,
+                          "text-gray-400",
+                          "text-gray-500"
+                        )}`}
+                      >
+                        Supports PDF, DOCX, TXT — max 10 MB
+                      </p>
+                    </div>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".pdf,.docx,.txt"
+                      className="hidden"
+                      onChange={handleFileInputChange}
                     />
-                    <h3
-                      className={`mt-2 text-lg font-medium ${getThemedClasses(
+                  </div>
+                ) : (
+                  // File preview card
+                  <div
+                    className={`flex items-center gap-4 p-4 rounded-xl border ${getThemedClasses(
+                      isDark,
+                      "bg-indigo-50 border-indigo-100",
+                      "bg-indigo-950/20 border-indigo-800/30"
+                    )}`}
+                  >
+                    {fileIcon}
+                    <div className="flex-1 min-w-0">
+                      <p
+                        className={`text-sm font-semibold truncate ${getThemedClasses(
+                          isDark,
+                          "text-gray-800",
+                          "text-gray-200"
+                        )}`}
+                      >
+                        {selectedFile.name}
+                      </p>
+                      <p
+                        className={`text-xs mt-0.5 ${getThemedClasses(
+                          isDark,
+                          "text-gray-500",
+                          "text-gray-400"
+                        )}`}
+                      >
+                        {formatBytes(selectedFile.size)} ·{" "}
+                        {selectedFile.name.split(".").pop()?.toUpperCase()}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedFile(null)}
+                      title="Remove file"
+                      className={`p-1.5 rounded-lg transition ${getThemedClasses(
                         isDark,
-                        "text-gray-900",
-                        "text-white"
+                        "text-gray-400 hover:text-red-500 hover:bg-red-50",
+                        "text-gray-500 hover:text-red-400 hover:bg-red-500/10"
                       )}`}
                     >
-                      No quizzes found
-                    </h3>
-                    <p
-                      className={`mt-1 text-sm ${getThemedClasses(
-                        isDark,
-                        "text-gray-500",
-                        "text-gray-400"
-                      )}`}
-                    >
-                      Generate a new quiz to get started.
-                    </p>
+                      <XMarkIcon className="h-4 w-4" />
+                    </button>
                   </div>
                 )}
-              </div>
+
+                {/* Number of Questions + Max Score */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                  <div>
+                    <label htmlFor="num_questions_file" className={labelCls}>
+                      Number of Questions
+                    </label>
+                    <input
+                      id="num_questions_file"
+                      type="number"
+                      min={1}
+                      max={50}
+                      value={numQuestions}
+                      onChange={(e) =>
+                        setNumQuestions(parseInt(e.target.value, 10))
+                      }
+                      className={inputCls}
+                    />
+                    <p
+                      className={`mt-1 text-xs ${getThemedClasses(
+                        isDark,
+                        "text-gray-400",
+                        "text-gray-500"
+                      )}`}
+                    >
+                      Recommended: 10–25
+                    </p>
+                  </div>
+                  <div>
+                    <label htmlFor="max_score_file" className={labelCls}>
+                      Maximum Score
+                    </label>
+                    <input
+                      id="max_score_file"
+                      type="number"
+                      min={1}
+                      value={maxScore}
+                      onChange={(e) =>
+                        setMaxScore(parseInt(e.target.value, 10))
+                      }
+                      className={inputCls}
+                    />
+                    <p
+                      className={`mt-1 text-xs ${getThemedClasses(
+                        isDark,
+                        "text-gray-400",
+                        "text-gray-500"
+                      )}`}
+                    >
+                      Total points for the quiz
+                    </p>
+                  </div>
+                </div>
+
+                {/* Topics (optional) */}
+                <div>
+                  <label htmlFor="topics_file" className={labelCls}>
+                    Specific Topics{" "}
+                    <span
+                      className={`font-normal ${getThemedClasses(
+                        isDark,
+                        "text-gray-400",
+                        "text-gray-500"
+                      )}`}
+                    >
+                      (Optional)
+                    </span>
+                  </label>
+                  <input
+                    id="topics_file"
+                    type="text"
+                    value={topics}
+                    onChange={(e) => setTopics(e.target.value)}
+                    placeholder="e.g. data structures, sorting algorithms..."
+                    className={inputCls}
+                  />
+                  <p
+                    className={`mt-1 text-xs ${getThemedClasses(
+                      isDark,
+                      "text-gray-400",
+                      "text-gray-500"
+                    )}`}
+                  >
+                    Leave empty to cover all content
+                  </p>
+                </div>
+
+                {/* Submit */}
+                <div className="flex justify-end">
+                  <GenerateButton
+                    generating={generating}
+                    disabled={!selectedFile}
+                  />
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+
+        {/* Quiz List */}
+        <div
+          className={`rounded-2xl border shadow-sm overflow-hidden ${getThemedClasses(
+            isDark,
+            "bg-white border-gray-200",
+            "bg-gray-800 border-gray-700/50"
+          )}`}
+        >
+          <div
+            className={`px-6 py-4 border-b flex items-center justify-between ${getThemedClasses(
+              isDark,
+              "border-gray-100",
+              "border-gray-700/50"
+            )}`}
+          >
+            <div className="flex items-center gap-2">
+              <QuestionMarkCircleIcon
+                className={`h-5 w-5 ${getThemedClasses(
+                  isDark,
+                  "text-teal-600",
+                  "text-teal-400"
+                )}`}
+              />
+              <h2
+                className={`text-base font-semibold ${getThemedClasses(
+                  isDark,
+                  "text-gray-900",
+                  "text-white"
+                )}`}
+              >
+                Generated Quizzes
+              </h2>
             </div>
+            {loading && (
+              <svg
+                className={`animate-spin h-4 w-4 ${getThemedClasses(
+                  isDark,
+                  "text-gray-400",
+                  "text-gray-500"
+                )}`}
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                />
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                />
+              </svg>
+            )}
+          </div>
+
+          <div className="p-6 space-y-3">
+            {quizzes.length > 0 ? (
+              quizzes.map((quiz) => (
+                <QuizCard
+                  key={quiz.id}
+                  quiz={quiz}
+                  onDelete={handleDeleteQuiz}
+                  onViewDetails={(q) => {
+                    setSelectedQuiz(q);
+                    setShowQuizDetails(true);
+                  }}
+                  onVerify={(q) => setSelectedQuizForVerification(q)}
+                  onViewSubmissions={(id) => setSelectedQuizForSubmissions(id)}
+                />
+              ))
+            ) : (
+              <div
+                className={`text-center py-10 rounded-xl ${getThemedClasses(
+                  isDark,
+                  "bg-gray-50",
+                  "bg-gray-700/30"
+                )}`}
+              >
+                <QuestionMarkCircleIcon
+                  className={`mx-auto h-10 w-10 mb-2 ${getThemedClasses(
+                    isDark,
+                    "text-gray-300",
+                    "text-gray-600"
+                  )}`}
+                />
+                <p
+                  className={`font-medium ${getThemedClasses(
+                    isDark,
+                    "text-gray-600",
+                    "text-gray-400"
+                  )}`}
+                >
+                  No quizzes yet
+                </p>
+                <p
+                  className={`text-sm mt-0.5 ${getThemedClasses(
+                    isDark,
+                    "text-gray-400",
+                    "text-gray-500"
+                  )}`}
+                >
+                  Generate a quiz above to get started.
+                </p>
+              </div>
+            )}
+
+            {/* Pagination */}
+            {pagination.totalPages > 1 && (
+              <div className="flex justify-center gap-1.5 pt-2">
+                {Array.from(
+                  { length: pagination.totalPages },
+                  (_, i) => i + 1
+                ).map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => loadQuizzes(p)}
+                    className={`w-8 h-8 rounded-lg text-sm font-medium transition ${pagination.page === p
+                      ? "bg-indigo-600 text-white"
+                      : getThemedClasses(
+                        isDark,
+                        "bg-gray-100 text-gray-600 hover:bg-gray-200",
+                        "bg-gray-700 text-gray-300 hover:bg-gray-600"
+                      )
+                      }`}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -833,11 +1003,11 @@ const MCQGenerator: React.FC = () => {
       {/* Quiz Details Modal */}
       {showQuizDetails && selectedQuiz && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
           onClick={() => setShowQuizDetails(false)}
         >
           <div
-            className={`max-w-2xl w-full p-6 rounded-2xl shadow-2xl transform transition-all duration-300 scale-95 hover:scale-100 ${getThemedClasses(
+            className={`max-w-2xl w-full mx-4 p-6 rounded-2xl shadow-2xl ${getThemedClasses(
               isDark,
               "bg-white",
               "bg-gray-800"
@@ -845,7 +1015,7 @@ const MCQGenerator: React.FC = () => {
             onClick={(e) => e.stopPropagation()}
           >
             <h2
-              className={`text-2xl font-bold mb-4 ${getThemedClasses(
+              className={`text-xl font-bold mb-4 ${getThemedClasses(
                 isDark,
                 "text-gray-900",
                 "text-white"
@@ -853,57 +1023,57 @@ const MCQGenerator: React.FC = () => {
             >
               {selectedQuiz.name}
             </h2>
-            <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-4">
-              {selectedQuiz.question_json?.map((q, index) => (
+            <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+              {selectedQuiz.question_json?.map((q, idx) => (
                 <div
                   key={q.id}
                   className={`p-4 rounded-lg ${getThemedClasses(
                     isDark,
-                    "bg-gray-100",
+                    "bg-gray-50",
                     "bg-gray-700"
                   )}`}
                 >
                   <p
-                    className={`font-semibold ${getThemedClasses(
+                    className={`font-semibold text-sm mb-2 ${getThemedClasses(
                       isDark,
                       "text-gray-800",
                       "text-gray-200"
                     )}`}
                   >
-                    {index + 1}. {q.question}
+                    {idx + 1}. {q.question}
                   </p>
-                  <div className="mt-2 space-y-2">
-                    {q.options.map((opt, optIndex) => (
+                  <div className="space-y-1">
+                    {q.options.map((opt, oIdx) => (
                       <p
-                        key={optIndex}
-                        className={`${
-                          optIndex === q.correct_answer
-                            ? getThemedClasses(
-                                isDark,
-                                "text-green-700 font-bold",
-                                "text-green-400 font-bold"
-                              )
-                            : getThemedClasses(
-                                isDark,
-                                "text-gray-600",
-                                "text-gray-300"
-                              )
-                        }`}
+                        key={oIdx}
+                        className={`text-xs ${oIdx === q.correct_answer
+                          ? getThemedClasses(
+                            isDark,
+                            "text-green-700 font-semibold",
+                            "text-green-400 font-semibold"
+                          )
+                          : getThemedClasses(
+                            isDark,
+                            "text-gray-500",
+                            "text-gray-400"
+                          )
+                          }`}
                       >
-                        - {opt}
+                        {oIdx === q.correct_answer ? "✓ " : "· "}
+                        {opt}
                       </p>
                     ))}
                   </div>
                 </div>
               ))}
             </div>
-            <div className="mt-6 text-right">
+            <div className="mt-5 flex justify-end">
               <button
                 onClick={() => setShowQuizDetails(false)}
-                className={`px-6 py-2 rounded-lg font-semibold transition-colors duration-200 ${getThemedClasses(
+                className={`px-5 py-2 rounded-lg text-sm font-semibold transition ${getThemedClasses(
                   isDark,
-                  "bg-gray-200 text-gray-800 hover:bg-gray-300",
-                  "bg-gray-600 text-white hover:bg-gray-500"
+                  "bg-gray-100 text-gray-700 hover:bg-gray-200",
+                  "bg-gray-700 text-white hover:bg-gray-600"
                 )}`}
               >
                 Close
@@ -916,86 +1086,108 @@ const MCQGenerator: React.FC = () => {
   );
 };
 
+// ─── Shared Generate Button ───────────────────────────────────────────────────
+const GenerateButton: React.FC<{
+  generating: boolean;
+  disabled?: boolean;
+}> = ({ generating, disabled = false }) => (
+  <button
+    type="submit"
+    disabled={generating || disabled}
+    className="inline-flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-sm rounded-lg transition shadow-sm"
+  >
+    {generating ? (
+      <>
+        <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+          <circle
+            className="opacity-25"
+            cx="12"
+            cy="12"
+            r="10"
+            stroke="currentColor"
+            strokeWidth="4"
+          />
+          <path
+            className="opacity-75"
+            fill="currentColor"
+            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+          />
+        </svg>
+        Generating...
+      </>
+    ) : (
+      <>
+        <SparklesIcon className="h-4 w-4" />
+        Generate with Gemini AI
+      </>
+    )}
+  </button>
+);
+
+// ─── QuizCard ────────────────────────────────────────────────────────────────
+
 const QuizCard: React.FC<{
   quiz: Quiz;
-  onDelete: (quizId: string, quizName: string) => Promise<void>;
+  onDelete: (id: string, name: string) => void;
   onViewDetails: (quiz: Quiz) => void;
   onVerify: (quiz: Quiz) => void;
-  onViewSubmissions: (quizId: string) => void;
+  onViewSubmissions: (id: string) => void;
 }> = ({ quiz, onDelete, onViewDetails, onVerify, onViewSubmissions }) => {
   const { isDark } = useTheme();
 
-  const handleDelete = async () => {
-    onDelete(quiz.id, quiz.name);
-  };
-
-  const handleViewDetails = () => {
-    onViewDetails(quiz);
-  };
-
-  const handleVerify = () => {
-    onVerify(quiz);
-  };
-
-  const handleViewSubmissions = () => {
-    onViewSubmissions(quiz.id);
-  };
-
-  const statusPill = (status: "draft" | "active" | "inactive" | undefined) => {
-    const baseClasses = "px-3 py-1 text-xs font-semibold rounded-full";
-    switch (status) {
-      case "active":
-        return (
-          <span
-            className={`${baseClasses} ${getThemedClasses(
-              isDark,
-              "bg-green-100 text-green-800",
-              "bg-green-900/50 text-green-300"
-            )}`}
-          >
-            Active
-          </span>
-        );
-      case "draft":
-        return (
-          <span
-            className={`${baseClasses} ${getThemedClasses(
-              isDark,
-              "bg-yellow-100 text-yellow-800",
-              "bg-yellow-900/50 text-yellow-300"
-            )}`}
-          >
-            Draft
-          </span>
-        );
-      default:
-        return (
-          <span
-            className={`${baseClasses} ${getThemedClasses(
-              isDark,
-              "bg-gray-100 text-gray-800",
-              "bg-gray-700 text-gray-300"
-            )}`}
-          >
-            Inactive
-          </span>
-        );
-    }
+  const statusPill = (
+    status: "draft" | "active" | "inactive" | undefined
+  ) => {
+    const base = "px-2.5 py-0.5 text-xs font-semibold rounded-full";
+    if (status === "active")
+      return (
+        <span
+          className={`${base} ${getThemedClasses(
+            isDark,
+            "bg-green-100 text-green-700",
+            "bg-green-900/50 text-green-300"
+          )}`}
+        >
+          Active
+        </span>
+      );
+    if (status === "draft")
+      return (
+        <span
+          className={`${base} ${getThemedClasses(
+            isDark,
+            "bg-yellow-100 text-yellow-700",
+            "bg-yellow-900/50 text-yellow-300"
+          )}`}
+        >
+          Draft
+        </span>
+      );
+    return (
+      <span
+        className={`${base} ${getThemedClasses(
+          isDark,
+          "bg-gray-100 text-gray-600",
+          "bg-gray-700 text-gray-400"
+        )}`}
+      >
+        Inactive
+      </span>
+    );
   };
 
   return (
     <div
-      className={`p-6 rounded-2xl border transition-all duration-300 hover:shadow-xl hover:-translate-y-1 group ${getThemedClasses(
+      className={`p-5 rounded-xl border transition hover:shadow-md group ${getThemedClasses(
         isDark,
-        "bg-white/50 border-gray-200/80 hover:border-gray-300",
-        "bg-gray-800/50 border-gray-700/60 hover:border-gray-600"
+        "bg-white border-gray-200 hover:border-gray-300",
+        "bg-gray-800/50 border-gray-700 hover:border-gray-600"
       )}`}
     >
-      {/* Header section */}
-      <div className="flex items-start justify-between mb-4">
-        <div className="flex-1">
+      <div className="flex items-start justify-between mb-3">
+        <div className="flex-1 min-w-0">
           <h3
-            className={`font-bold text-lg mb-2 group-hover:text-indigo-500 transition-colors duration-200 ${getThemedClasses(
+            className={`font-semibold text-sm truncate group-hover:text-indigo-500 transition-colors ${getThemedClasses(
               isDark,
               "text-gray-900",
               "text-white"
@@ -1004,15 +1196,14 @@ const QuizCard: React.FC<{
             {quiz.name}
           </h3>
           <div
-            className={`flex items-center gap-2 text-xs ${getThemedClasses(
+            className={`flex items-center gap-1.5 text-xs mt-0.5 ${getThemedClasses(
               isDark,
-              "text-gray-500",
-              "text-gray-400"
+              "text-gray-400",
+              "text-gray-500"
             )}`}
           >
-            <ClockIcon className="h-4 w-4" />
+            <ClockIcon className="h-3.5 w-3.5 flex-shrink-0" />
             <span>
-              Created:{" "}
               {new Date(quiz.created_at).toLocaleDateString("en-US", {
                 year: "numeric",
                 month: "short",
@@ -1021,192 +1212,117 @@ const QuizCard: React.FC<{
             </span>
           </div>
         </div>
-        <div className="flex-shrink-0 ml-4">{statusPill(quiz.status)}</div>
+        <div className="ml-3 flex-shrink-0">{statusPill(quiz.status)}</div>
       </div>
 
-      {/* Info section */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
-        <div className="flex items-center gap-3">
-          <div
-            className={`p-2 rounded-lg ${getThemedClasses(
-              isDark,
-              "bg-blue-100",
-              "bg-blue-900/50"
-            )}`}
-          >
-            <AcademicCapIcon
-              className={`h-5 w-5 ${getThemedClasses(
-                isDark,
-                "text-blue-600",
-                "text-blue-300"
-              )}`}
-            />
+      <div className="grid grid-cols-3 gap-2 mb-3">
+        {[
+          {
+            Icon: AcademicCapIcon,
+            label: "Course",
+            value: quiz.course?.name || "General",
+          },
+          {
+            Icon: QuestionMarkCircleIcon,
+            label: "Questions",
+            value: String(quiz.question_count || 0),
+          },
+          {
+            Icon: ChartBarIcon,
+            label: "Max Score",
+            value: String(quiz.max_score),
+          },
+        ].map(({ Icon, label, value }) => (
+          <div key={label} className="flex items-center gap-2 min-w-0">
+            <div>
+              <p
+                className={`text-xs ${getThemedClasses(
+                  isDark,
+                  "text-gray-400",
+                  "text-gray-500"
+                )}`}
+              >
+                {label}
+              </p>
+              <p
+                className={`text-sm font-medium truncate ${getThemedClasses(
+                  isDark,
+                  "text-gray-800",
+                  "text-gray-200"
+                )}`}
+              >
+                {value}
+              </p>
+            </div>
           </div>
-          <div>
-            <p
-              className={`text-xs font-medium ${getThemedClasses(
-                isDark,
-                "text-gray-500",
-                "text-gray-400"
-              )}`}
-            >
-              Course
-            </p>
-            <p
-              className={`font-semibold ${getThemedClasses(
-                isDark,
-                "text-gray-800",
-                "text-gray-200"
-              )}`}
-            >
-              {quiz.course?.name || "N/A"}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <div
-            className={`p-2 rounded-lg ${getThemedClasses(
-              isDark,
-              "bg-green-100",
-              "bg-green-900/50"
-            )}`}
-          >
-            <QuestionMarkCircleIcon
-              className={`h-5 w-5 ${getThemedClasses(
-                isDark,
-                "text-green-600",
-                "text-green-300"
-              )}`}
-            />
-          </div>
-          <div>
-            <p
-              className={`text-xs font-medium ${getThemedClasses(
-                isDark,
-                "text-gray-500",
-                "text-gray-400"
-              )}`}
-            >
-              Questions
-            </p>
-            <p
-              className={`font-semibold ${getThemedClasses(
-                isDark,
-                "text-gray-800",
-                "text-gray-200"
-              )}`}
-            >
-              {quiz.question_count || 0}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <div
-            className={`p-2 rounded-lg ${getThemedClasses(
-              isDark,
-              "bg-purple-100",
-              "bg-purple-900/50"
-            )}`}
-          >
-            <ChartBarIcon
-              className={`h-5 w-5 ${getThemedClasses(
-                isDark,
-                "text-purple-600",
-                "text-purple-300"
-              )}`}
-            />
-          </div>
-          <div>
-            <p
-              className={`text-xs font-medium ${getThemedClasses(
-                isDark,
-                "text-gray-500",
-                "text-gray-400"
-              )}`}
-            >
-              Max Score
-            </p>
-            <p
-              className={`font-semibold ${getThemedClasses(
-                isDark,
-                "text-gray-800",
-                "text-gray-200"
-              )}`}
-            >
-              {quiz.max_score}
-            </p>
-          </div>
-        </div>
+        ))}
       </div>
 
-      {/* Footer with actions */}
       <div
-        className={`border-t pt-4 mt-4 flex items-center justify-between ${getThemedClasses(
+        className={`border-t pt-3 flex items-center justify-between ${getThemedClasses(
           isDark,
-          "border-gray-200",
+          "border-gray-100",
           "border-gray-700/50"
         )}`}
       >
         <div
-          className={`flex items-center text-sm font-medium ${getThemedClasses(
+          className={`flex items-center gap-1 text-xs ${getThemedClasses(
             isDark,
-            "text-gray-600",
-            "text-gray-400"
+            "text-gray-400",
+            "text-gray-500"
           )}`}
         >
-          <UserGroupIcon className="h-4 w-4 mr-2" />
-          <span>Submissions: N/A</span>
+          <UserGroupIcon className="h-3.5 w-3.5" />
+          <span>Submissions</span>
         </div>
-        <div className="flex space-x-2">
+        <div className="flex gap-1">
           <button
-            onClick={handleViewDetails}
+            onClick={() => onViewDetails(quiz)}
             title="View Details"
-            className={`p-2 rounded-lg transition-colors duration-200 ${getThemedClasses(
+            className={`p-1.5 rounded-lg transition ${getThemedClasses(
               isDark,
-              "text-blue-600 hover:bg-blue-100",
-              "text-blue-400 hover:bg-blue-500/20"
+              "text-blue-500 hover:bg-blue-50",
+              "text-blue-400 hover:bg-blue-500/10"
             )}`}
           >
-            <EyeIcon className="h-5 w-5" />
+            <EyeIcon className="h-4 w-4" />
           </button>
           {quiz.status === "draft" && (
             <button
-              onClick={handleVerify}
-              title="Verify Quiz"
-              className={`p-2 rounded-lg transition-colors duration-200 ${getThemedClasses(
+              onClick={() => onVerify(quiz)}
+              title="Verify & Activate"
+              className={`p-1.5 rounded-lg transition ${getThemedClasses(
                 isDark,
-                "text-orange-600 hover:bg-orange-100",
-                "text-orange-400 hover:bg-orange-500/20"
+                "text-orange-500 hover:bg-orange-50",
+                "text-orange-400 hover:bg-orange-500/10"
               )}`}
             >
-              <CheckCircleIcon className="h-5 w-5" />
+              <CheckCircleIcon className="h-4 w-4" />
             </button>
           )}
           {quiz.status === "active" && (
             <button
-              onClick={handleViewSubmissions}
+              onClick={() => onViewSubmissions(quiz.id)}
               title="View Submissions"
-              className={`p-2 rounded-lg transition-colors duration-200 ${getThemedClasses(
+              className={`p-1.5 rounded-lg transition ${getThemedClasses(
                 isDark,
-                "text-green-600 hover:bg-green-100",
-                "text-green-400 hover:bg-green-500/20"
+                "text-green-600 hover:bg-green-50",
+                "text-green-400 hover:bg-green-500/10"
               )}`}
             >
-              <UserGroupIcon className="h-5 w-5" />
+              <UserGroupIcon className="h-4 w-4" />
             </button>
           )}
           <button
-            onClick={handleDelete}
-            title="Delete Quiz"
-            className={`p-2 rounded-lg transition-colors duration-200 ${getThemedClasses(
+            onClick={() => onDelete(quiz.id, quiz.name)}
+            title="Delete"
+            className={`p-1.5 rounded-lg transition ${getThemedClasses(
               isDark,
-              "text-red-600 hover:bg-red-100",
-              "text-red-400 hover:bg-red-500/20"
+              "text-red-500 hover:bg-red-50",
+              "text-red-400 hover:bg-red-500/10"
             )}`}
           >
-            <TrashIcon className="h-5 w-5" />
+            <TrashIcon className="h-4 w-4" />
           </button>
         </div>
       </div>

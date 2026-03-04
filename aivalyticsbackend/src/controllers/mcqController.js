@@ -1,8 +1,10 @@
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 const fs = require("fs");
 const path = require("path");
 const OpenAI = require("openai");
 const pdf = require("pdf-parse");
-const { supabase } = require("../config/database");
+const mammoth = require("mammoth");
+const { supabase, adminSupabase } = require("../config/database");
 
 /**
  * MCQ Controller
@@ -52,11 +54,10 @@ CRITICAL REQUIREMENTS:
 5. DO NOT reference specific sections, chapters, or numbered exercises (like "section 1.9" or "exercise 1.15.3")
 6. Focus on WHY and HOW concepts work, not just WHAT they are
 7. Create scenario-based questions that test application of knowledge
-8. ${
-      topics
+8. ${topics
         ? `Focus on these topics: ${topics}`
         : "Cover key concepts from the content"
-    }
+      }
 9. Provide detailed explanations that help students understand the reasoning
 
 QUESTION DESIGN PRINCIPLES:
@@ -378,18 +379,23 @@ const extractTextFromFile = async (filePath, fileType) => {
 
     if (
       fileType ===
-        "application/vnd.openxmlformats-officedocument.presentationml.presentation" ||
-      fileType ===
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     ) {
-      // For PPTX and DOCX files, you would need additional libraries like mammoth or officegen
-      // For now, returning a message to use PDF or TXT
+      // Extract text from DOCX using mammoth
+      const result = await mammoth.extractRawText({ path: filePath });
+      return result.value;
+    }
+
+    if (
+      fileType ===
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    ) {
       throw new Error(
-        "PPTX and DOCX files are not fully supported yet. Please convert to PDF or TXT format."
+        "PPTX files are not supported. Please convert to PDF, DOCX, or TXT format."
       );
     }
 
-    throw new Error("Unsupported file type");
+    throw new Error("Unsupported file type. Allowed: PDF, DOCX, TXT.");
   } catch (error) {
     throw new Error(`Failed to extract text from file: ${error.message}`);
   }
@@ -982,8 +988,7 @@ const getQuizForTaking = async (req, res) => {
         console.log(`👨‍🎓 Student: ${userId}`);
         console.log(`📝 Quiz: ${quiz.name} (${quiz.id})`);
         console.log(
-          `🔢 Selected exactly ${questions.length} questions from ${
-            quiz.question_json?.length || 0
+          `🔢 Selected exactly ${questions.length} questions from ${quiz.question_json?.length || 0
           } total`
         );
         console.log(
@@ -1441,7 +1446,7 @@ const getQuizSubmissions = async (req, res) => {
     const averageScore =
       totalSubmissions > 0
         ? submissions.reduce((sum, sub) => sum + sub.marks, 0) /
-          totalSubmissions
+        totalSubmissions
         : 0;
     const highestScore =
       totalSubmissions > 0
@@ -1481,11 +1486,11 @@ const getQuizSubmissions = async (req, res) => {
         pass_rate:
           totalSubmissions > 0
             ? Math.round(
-                (submissions.filter((sub) => sub.marks / quiz.max_score >= 0.6)
-                  .length /
-                  totalSubmissions) *
-                  100
-              )
+              (submissions.filter((sub) => sub.marks / quiz.max_score >= 0.6)
+                .length /
+                totalSubmissions) *
+              100
+            )
             : 0,
       },
       pagination: {
@@ -1623,7 +1628,7 @@ const getQuizAnalytics = async (req, res) => {
       averageScore =
         Math.round(
           (percentages.reduce((sum, p) => sum + p, 0) / percentages.length) *
-            100
+          100
         ) / 100;
       highestScore = Math.max(...percentages);
       lowestScore = Math.min(...percentages);
@@ -1659,10 +1664,10 @@ const getQuizAnalytics = async (req, res) => {
       const avgScore =
         quizPercentages.length > 0
           ? Math.round(
-              (quizPercentages.reduce((sum, p) => sum + p, 0) /
-                quizPercentages.length) *
-                100
-            ) / 100
+            (quizPercentages.reduce((sum, p) => sum + p, 0) /
+              quizPercentages.length) *
+            100
+          ) / 100
           : 0;
 
       return {
@@ -1678,11 +1683,11 @@ const getQuizAnalytics = async (req, res) => {
         pass_rate:
           quizScores.length > 0
             ? Math.round(
-                (quizPercentages.filter((p) => p >= 60).length /
-                  quizScores.length) *
-                  100 *
-                  100
-              ) / 100
+              (quizPercentages.filter((p) => p >= 60).length /
+                quizScores.length) *
+              100 *
+              100
+            ) / 100
             : 0,
         created_at: quiz.created_at,
       };
@@ -1720,10 +1725,10 @@ const getQuizAnalytics = async (req, res) => {
         average_score:
           monthPercentages.length > 0
             ? Math.round(
-                (monthPercentages.reduce((sum, p) => sum + p, 0) /
-                  monthPercentages.length) *
-                  100
-              ) / 100
+              (monthPercentages.reduce((sum, p) => sum + p, 0) /
+                monthPercentages.length) *
+              100
+            ) / 100
             : 0,
       });
     }
@@ -1978,8 +1983,250 @@ const getDetailedExplanation = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Generate MCQ from pasted lecture content using Google Gemini AI
+ * @route   POST /api/mcq/generate-text
+ * @access  Private (Teachers only)
+ */
+const generateMCQWithGemini = async (content, numQuestions, maxScore, topics, apiKey) => {
+  const genAI = new GoogleGenerativeAI(apiKey.trim());
+  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+
+  const topicsInstruction = topics ? `Focus specifically on these topics: ${topics}.` : "";
+
+  const prompt = `You are an expert educator. Based on the following content, generate exactly ${numQuestions} multiple-choice questions.
+${topicsInstruction}
+
+Content:
+${content.substring(0, 10000)}
+
+CRITICAL: Respond ONLY with a valid JSON array. No markdown, no code blocks, no extra text.
+Each object must have: question (string), options (array of 4 strings), correct_answer (number 0-3), explanation (string), difficulty ("easy"|"medium"|"hard"), topic (string).
+
+Example:
+[{"question":"What is X?","options":["A","B","C","D"],"correct_answer":2,"explanation":"Because C is correct.","difficulty":"medium","topic":"General"}]`;
+
+  const result = await model.generateContent(prompt);
+  const text = result.response.text().trim();
+
+  // Strip markdown code fences if present
+  let jsonText = text;
+  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+  if (fenceMatch) jsonText = fenceMatch[1];
+
+  const arrayMatch = jsonText.match(/\[[\s\S]*\]/);
+  if (!arrayMatch) throw new Error("No valid JSON array in Gemini response");
+
+  const questions = JSON.parse(arrayMatch[0]);
+  const validated = questions
+    .filter(q => q.question && Array.isArray(q.options) && q.options.length === 4 &&
+      typeof q.correct_answer === "number" && q.correct_answer >= 0 && q.correct_answer <= 3)
+    .map((q, idx) => ({ ...q, id: idx }));
+
+  if (validated.length === 0) throw new Error("No valid questions were generated. Please check your content.");
+  return validated;
+};
+
+const generateMCQFromText = async (req, res) => {
+  try {
+    const {
+      lecture_content,
+      num_questions = 10,
+      max_score = 100,
+      topics = "",
+      gemini_api_key,
+    } = req.body;
+
+    // Auto-generate quiz name from timestamp
+    const quiz_name = req.body.quiz_name ||
+      `AI Quiz - ${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} ${new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}`;
+
+    if (!lecture_content || lecture_content.trim().length < 20) {
+      return res.status(400).json({ success: false, message: "Lecture content must be at least 20 characters" });
+    }
+    if (!gemini_api_key || !gemini_api_key.trim()) {
+      return res.status(400).json({ success: false, message: "Gemini API key is required. Get yours at https://aistudio.google.com/" });
+    }
+
+    const userId = req.user.id;
+    const userRole = req.user.role;
+    if (!["teacher", "hod", "principal"].includes(userRole)) {
+      return res.status(403).json({ success: false, message: "Only teachers can generate MCQs" });
+    }
+
+    console.log(`🤖 Starting Gemini MCQ generation | Questions: ${num_questions} | Content length: ${lecture_content.length}`);
+
+    let generatedQuestions;
+    try {
+      generatedQuestions = await generateMCQWithGemini(lecture_content, parseInt(num_questions), parseInt(max_score), topics, gemini_api_key);
+      console.log(`✅ Gemini generated ${generatedQuestions.length} questions`);
+    } catch (error) {
+      console.error("❌ Gemini generation failed:", error);
+      return res.status(500).json({ success: false, message: `Failed to generate MCQs: ${error.message}` });
+    }
+
+    if (generatedQuestions.length < 3) {
+      return res.status(400).json({ success: false, message: `Only ${generatedQuestions.length} questions generated. Provide more detailed content.` });
+    }
+
+    // Save to database (course_id is optional)
+    const course_id = req.body.course_id || null;
+    const { data: quiz, error: quizError } = await supabase
+      .from("quiz")
+      .insert({
+        name: quiz_name,
+        course_id: course_id || undefined,
+        created_by: userId,
+        updated_by: userId,
+        question_json: generatedQuestions,
+        max_score: parseInt(max_score),
+        status: "draft",
+      })
+      .select()
+      .single();
+
+    if (quizError) throw new Error(`Failed to save quiz: ${quizError.message}`);
+
+    console.log(`💾 Quiz saved. ID: ${quiz.id}`);
+
+    res.json({
+      success: true,
+      message: "MCQ quiz generated successfully with Google Gemini AI",
+      data: {
+        quiz_id: quiz.id,
+        quiz_name: quiz.name,
+        total_questions: generatedQuestions.length,
+        total_marks: quiz.max_score,
+        course_name: "General",
+        ai_model: "Google Gemini 2.0 Flash",
+      },
+    });
+  } catch (error) {
+    console.error("generateMCQFromText error:", error);
+    res.status(500).json({ success: false, message: "Internal server error during MCQ generation" });
+  }
+};
+
+/**
+ * @desc    Generate MCQ from uploaded file using Google Gemini AI
+ * @route   POST /api/mcq/generate-file
+ * @access  Private (Teachers only)
+ */
+const generateMCQFromFile = async (req, res) => {
+  const uploadedFilePath = req.file?.path;
+  try {
+    const {
+      num_questions = 10,
+      max_score = 100,
+      topics = "",
+      gemini_api_key,
+    } = req.body;
+
+    const quiz_name =
+      req.body.quiz_name ||
+      `AI Quiz - ${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} ${new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}`;
+
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: "No file uploaded. Please attach a PDF, DOCX, or TXT file." });
+    }
+    if (!gemini_api_key || !gemini_api_key.trim()) {
+      if (uploadedFilePath) fs.unlinkSync(uploadedFilePath);
+      return res.status(400).json({ success: false, message: "Gemini API key is required. Get yours at https://aistudio.google.com/" });
+    }
+
+    const userId = req.user.id;
+    const userRole = req.user.role;
+    if (!["teacher", "hod", "principal"].includes(userRole)) {
+      if (uploadedFilePath) fs.unlinkSync(uploadedFilePath);
+      return res.status(403).json({ success: false, message: "Only teachers can generate MCQs" });
+    }
+
+    // Extract text from uploaded file
+    let extractedContent;
+    try {
+      extractedContent = await extractTextFromFile(req.file.path, req.file.mimetype);
+    } catch (error) {
+      if (uploadedFilePath) fs.unlinkSync(uploadedFilePath);
+      return res.status(400).json({ success: false, message: `Failed to read file: ${error.message}` });
+    }
+
+    if (!extractedContent || extractedContent.trim().length < 50) {
+      if (uploadedFilePath) fs.unlinkSync(uploadedFilePath);
+      return res.status(400).json({ success: false, message: "File content is too short or empty. Please upload a file with sufficient text content." });
+    }
+
+    console.log(`🤖 Gemini file MCQ generation | File: ${req.file.originalname} | Size: ${extractedContent.length} chars | Questions: ${num_questions}`);
+
+    let generatedQuestions;
+    try {
+      generatedQuestions = await generateMCQWithGemini(
+        extractedContent,
+        parseInt(num_questions),
+        parseInt(max_score),
+        topics,
+        gemini_api_key
+      );
+      console.log(`✅ Gemini generated ${generatedQuestions.length} questions from file`);
+    } catch (error) {
+      if (uploadedFilePath) fs.unlinkSync(uploadedFilePath);
+      console.error("❌ Gemini file generation failed:", error);
+      return res.status(500).json({ success: false, message: `Failed to generate MCQs: ${error.message}` });
+    }
+
+    // Clean up uploaded file after extraction
+    try { fs.unlinkSync(uploadedFilePath); } catch (e) { /* ignore */ }
+
+    if (generatedQuestions.length < 3) {
+      return res.status(400).json({ success: false, message: `Only ${generatedQuestions.length} questions generated. Please upload a file with more detailed content.` });
+    }
+
+    // Save to database
+    const course_id = req.body.course_id || null;
+    const { data: quiz, error: quizError } = await supabase
+      .from("quiz")
+      .insert({
+        name: quiz_name,
+        course_id: course_id || undefined,
+        created_by: userId,
+        updated_by: userId,
+        question_json: generatedQuestions,
+        max_score: parseInt(max_score),
+        status: "draft",
+      })
+      .select()
+      .single();
+
+    if (quizError) throw new Error(`Failed to save quiz: ${quizError.message}`);
+
+    console.log(`💾 File-based quiz saved. ID: ${quiz.id}`);
+
+    res.json({
+      success: true,
+      message: "MCQ quiz generated successfully from uploaded file using Google Gemini AI",
+      data: {
+        quiz_id: quiz.id,
+        quiz_name: quiz.name,
+        total_questions: generatedQuestions.length,
+        total_marks: quiz.max_score,
+        course_name: "General",
+        ai_model: "Google Gemini 2.0 Flash",
+        source_file: req.file.originalname,
+      },
+    });
+  } catch (error) {
+    // Always clean up file on error
+    if (uploadedFilePath) {
+      try { fs.unlinkSync(uploadedFilePath); } catch (e) { /* ignore */ }
+    }
+    console.error("generateMCQFromFile error:", error);
+    res.status(500).json({ success: false, message: "Internal server error during MCQ generation" });
+  }
+};
+
 module.exports = {
   generateMCQ,
+  generateMCQFromText,
+  generateMCQFromFile,
   getTeacherQuizzes,
   deleteQuiz,
   getCourseQuizzes,
