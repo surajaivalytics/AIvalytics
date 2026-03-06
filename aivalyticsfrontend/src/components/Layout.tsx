@@ -111,6 +111,12 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         icon: AcademicCapIcon,
         current: location.pathname.startsWith("/academic-management"),
       });
+      navItems.push({
+        name: "AI Quiz Generator",
+        href: "/quiz-generator",
+        icon: SparklesIcon,
+        current: location.pathname === "/quiz-generator",
+      });
     }
 
     if (user?.role === "student") {
