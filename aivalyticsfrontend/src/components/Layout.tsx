@@ -1,9 +1,7 @@
 import React, { Fragment, useState, useCallback, useMemo, memo } from "react";
-import { Disclosure, Menu, Transition } from "@headlessui/react";
 import {
   Bars3Icon,
   XMarkIcon,
-  BellIcon,
   HomeIcon,
   UserIcon,
   BookOpenIcon,
@@ -19,7 +17,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { useAuth } from "../contexts/AuthContext";
 import { useTheme } from "../contexts/ThemeContext";
-import { Link, useNavigate, useLocation } from "react-router-dom";
+import { Link, useNavigate, useLocation, Outlet } from "react-router-dom";
 import ThemeToggle from "./ThemeToggle";
 import { MessageSquare } from "lucide-react";
 import FeedbackModal from "./FeedbackModal";
@@ -28,24 +26,12 @@ interface LayoutProps {
   children: React.ReactNode;
 }
 
-// Memoized SVG component for the logo
 const LogoSVG = memo(() => (
-  <svg
-    className="h-6 w-6 text-white"
-    fill="none"
-    stroke="currentColor"
-    viewBox="0 0 24 24"
-  >
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
-    />
+  <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
   </svg>
 ));
 
-// Memoized navigation item component
 const NavItem = memo(
   ({
     item,
@@ -66,10 +52,8 @@ const NavItem = memo(
     isCollapsed?: boolean;
   }) => {
     const Icon = item.icon;
-
     return (
       <Link
-        key={item.name}
         to={item.href}
         className={classNamesFn(
           item.current
@@ -96,7 +80,6 @@ const NavItem = memo(
             "flex-shrink-0 h-6 w-6",
             isCollapsed ? "mx-auto" : "mr-3"
           )}
-          aria-hidden="true"
         />
         {!isCollapsed && (
           <>
@@ -190,11 +173,18 @@ const UserProfile = memo(
         </button>
       )}
     </div>
-  )
-);
+    <div className="ml-3 flex-1 overflow-hidden">
+      <p className={`text-sm font-medium truncate ${isDark ? "text-white" : "text-gray-900"}`}>{user?.username || "User"}</p>
+      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium mt-1 ${getRoleColor(user?.role)}`}>
+        {user?.role?.toUpperCase()}
+      </span>
+    </div>
+    <button onClick={handleLogout} className="text-gray-400 hover:text-red-500 p-1"><XMarkIcon className="h-5 w-5" /></button>
+  </div>
+));
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {
-  const { user, logout, isLoading } = useAuth();
+  const { user, logout } = useAuth();
   const { isDark } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
@@ -202,58 +192,36 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
 
-  // Memoized logout handler
   const handleLogout = useCallback(async () => {
     await logout();
     navigate("/login");
   }, [logout, navigate]);
 
-  // Memoized sidebar toggle handlers
-  const openSidebar = useCallback(() => setSidebarOpen(true), []);
-  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+  const classNames = useCallback((...classes: string[]) => classes.filter(Boolean).join(" "), []);
 
-  // Memoized navigation items that only update when user or location changes
+  const getRoleColor = useCallback((role: string) => {
+    switch (role) {
+      case "student": return "bg-blue-500/10 text-blue-500";
+      case "teacher": return "bg-green-500/10 text-green-500";
+      case "hod": return "bg-purple-500/10 text-purple-500";
+      case "principal": return "bg-red-500/10 text-red-500";
+      default: return "bg-gray-500/10 text-gray-500";
+    }
+  }, []);
+
   const navigation = useMemo(() => {
     const navItems = [
-      {
-        name: "Dashboard",
-        href: "/dashboard",
-        icon: HomeIcon,
-        current: location.pathname === "/dashboard",
-      },
-      {
-        name: "Profile",
-        href: "/profile",
-        icon: UserIcon,
-        current: location.pathname === "/profile",
-      },
+      { name: "Dashboard", href: "/dashboard", icon: HomeIcon, current: location.pathname === "/dashboard" },
+      { name: "Profile", href: "/profile", icon: UserIcon, current: location.pathname === "/profile" },
     ];
 
-    // Add role-specific navigation items
-    if (user?.role === "student") {
+    // Standard single link for Academic Management
+    if (user?.role === "teacher" || user?.role === "hod" || user?.role === "principal") {
       navItems.push({
-        name: "Courses",
-        href: "/courses",
-        icon: BookOpenIcon,
-        current: location.pathname === "/courses",
-      });
-      navItems.push({
-        name: "Quizzes",
-        href: "/quizzes",
-        icon: DocumentTextIcon,
-        current: location.pathname === "/quizzes",
-      });
-      navItems.push({
-        name: "Attendance",
-        href: "/attendance",
-        icon: CalendarIcon,
-        current: location.pathname === "/attendance",
-      });
-      navItems.push({
-        name: "Reports",
-        href: "/reports",
-        icon: ChartBarIcon,
-        current: location.pathname === "/reports",
+        name: "Academic Management",
+        href: "/academic-management",
+        icon: AcademicCapIcon,
+        current: location.pathname.startsWith("/academic-management"),
       });
     }
 
@@ -285,64 +253,20 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       });
     }
 
-    // Only HOD gets "Class Management"
-    if (user?.role === "hod") {
-      navItems.push({
-        name: "Class Management",
-        href: "/class-management",
-        icon: AcademicCapIcon,
-        current: location.pathname === "/class-management",
-      });
+    if (user?.role === "student") {
+      navItems.push(
+        { name: "Courses", href: "/courses", icon: BookOpenIcon, current: location.pathname === "/courses" },
+        { name: "Attendance", href: "/attendance", icon: CalendarIcon, current: location.pathname === "/attendance" },
+        { name: "Reports", href: "/reports", icon: ChartBarIcon, current: location.pathname === "/reports" }
+      );
     }
 
-    // Principal gets department management only
-    if (user?.role === "principal") {
-      navItems.push({
-        name: "Department Management",
-        href: "/departments",
-        icon: BuildingLibraryIcon,
-        current: location.pathname === "/departments",
-      });
+    if (user?.role === "teacher") {
+      navItems.push({ name: "My Courses", href: "/my-courses", icon: BookOpenIcon, current: location.pathname === "/my-courses" });
     }
 
     return navItems;
   }, [user?.role, location.pathname]);
-
-  // Memoized user navigation items
-  const userNavigation = useMemo(
-    () => [
-      { name: "Your Profile", href: "/profile" },
-      { name: "Settings", href: "/settings" },
-    ],
-    []
-  );
-
-  // Memoized utility function
-  const classNames = useCallback((...classes: string[]) => {
-    return classes.filter(Boolean).join(" ");
-  }, []);
-
-  // Memoized role color function
-  const getRoleColor = useCallback((role: string) => {
-    switch (role) {
-      case "student":
-        return "bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-lg";
-      case "teacher":
-        return "bg-gradient-to-r from-green-500 to-green-600 text-white shadow-lg";
-      case "hod":
-        return "bg-gradient-to-r from-purple-500 to-purple-600 text-white shadow-lg";
-      case "principal":
-        return "bg-gradient-to-r from-red-500 to-red-600 text-white shadow-lg";
-      default:
-        return "bg-gradient-to-r from-gray-500 to-gray-600 text-white shadow-lg";
-    }
-  }, []);
-
-  // Memoized current page title
-  const currentPageTitle = useMemo(
-    () => navigation.find((item) => item.current)?.name || "Dashboard",
-    [navigation]
-  );
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 font-secondary">
@@ -473,7 +397,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             )}
           </div>
         </div>
-      )}
+      </div>
 
       {/* Main content - adjusted for fixed sidebar */}
       <div className={`flex flex-1 flex-col min-h-screen transition-all duration-300 ease-in-out ${isCollapsed ? 'md:pl-20' : 'md:pl-64'}`}>
@@ -602,5 +526,4 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   );
 };
 
-// Export memoized component to prevent unnecessary re-renders
 export default memo(Layout);

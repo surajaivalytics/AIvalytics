@@ -5,10 +5,12 @@ import {
   Route,
   Navigate,
 } from "react-router-dom";
+
 import { AuthProvider } from "./contexts/AuthContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import ThemedToaster from "./components/ThemedToaster";
+import Layout from "./components/Layout";
 
 // Pages
 import Login from "./pages/Login";
@@ -20,13 +22,11 @@ import Profile from "./pages/Profile";
 import Courses from "./pages/Courses";
 import MyCourses from "./pages/MyCoursesPage";
 import StudentQuizzesPage from "./pages/StudentQuizzesPage";
-import StudentReport from "./pages/StudentReport";
 import Reports from "./pages/Reports";
 import Unauthorized from "./pages/Unauthorized";
 import QuizGeneratorPage from "./pages/QuizGeneratorPage";
 import ClassManagementPage from "./pages/ClassManagementPage";
 import DepartmentsPage from "./pages/DepartmentsPage";
-import StudentAttendancePage from "./pages/StudentAttendancePage";
 import StudentAttendanceDashboard from "./pages/StudentAttendanceDashboard";
 import TeacherAcademicManagement from "./pages/TeacherAcademicManagement";
 import TeacherPerformance from "./pages/TeacherPerformance";
@@ -38,92 +38,36 @@ function App() {
     <ThemeProvider>
       <AuthProvider>
         <Router>
-          <div className="App bg-white dark:bg-gray-900 min-h-screen transition-colors duration-300">
-            <ThemedToaster />
+          <ThemedToaster />
 
-            <Routes>
-              {/* Public Routes */}
-              <Route path="/login" element={<Login />} />
-              <Route path="/register" element={<Register />} />
-              <Route path="/forgot-password" element={<ForgotPassword />} />
-              <Route path="/reset-password" element={<ResetPassword />} />
-              <Route path="/unauthorized" element={<Unauthorized />} />
+          <Routes>
+            {/* Public Routes */}
+            <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Register />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
+            <Route path="/unauthorized" element={<Unauthorized />} />
 
-              {/* Protected Routes */}
+            {/* Protected Layout Routes */}
+            <Route
+              element={
+                <ProtectedRoute>
+                  <Layout />
+                </ProtectedRoute>
+              }
+            >
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/profile" element={<Profile />} />
+
               <Route
-                path="/dashboard"
+                path="/academic-management/*"
                 element={
-                  <ProtectedRoute>
-                    <Dashboard />
+                  <ProtectedRoute allowedRoles={["teacher", "hod", "principal"]}>
+                    <AcademicManagement />
                   </ProtectedRoute>
                 }
               />
 
-              <Route
-                path="/profile"
-                element={
-                  <ProtectedRoute>
-                    <Profile />
-                  </ProtectedRoute>
-                }
-              />
-
-              {/* Student Routes */}
-              <Route
-                path="/courses"
-                element={
-                  <ProtectedRoute allowedRoles={["student"]}>
-                    <Courses />
-                  </ProtectedRoute>
-                }
-              />
-
-              <Route
-                path="/quizzes"
-                element={
-                  <ProtectedRoute allowedRoles={["student"]}>
-                    <StudentQuizzesPage />
-                  </ProtectedRoute>
-                }
-              />
-
-              <Route
-                path="/report"
-                element={
-                  <ProtectedRoute allowedRoles={["student"]}>
-                    <Navigate to="/reports" replace />
-                  </ProtectedRoute>
-                }
-              />
-
-              <Route
-                path="/reports"
-                element={
-                  <ProtectedRoute allowedRoles={["student"]}>
-                    <Reports />
-                  </ProtectedRoute>
-                }
-              />
-
-              <Route
-                path="/student/attendance"
-                element={
-                  <ProtectedRoute allowedRoles={["student"]}>
-                    <StudentAttendancePage />
-                  </ProtectedRoute>
-                }
-              />
-
-              <Route
-                path="/attendance"
-                element={
-                  <ProtectedRoute allowedRoles={["student"]}>
-                    <StudentAttendanceDashboard />
-                  </ProtectedRoute>
-                }
-              />
-
-              {/* Teacher Routes */}
               <Route
                 path="/academic-management"
                 element={
@@ -171,9 +115,7 @@ function App() {
               <Route
                 path="/my-courses"
                 element={
-                  <ProtectedRoute
-                    allowedRoles={["teacher", "hod", "principal"]}
-                  >
+                  <ProtectedRoute allowedRoles={["teacher"]}>
                     <MyCourses />
                   </ProtectedRoute>
                 }
@@ -182,15 +124,12 @@ function App() {
               <Route
                 path="/quiz-generator"
                 element={
-                  <ProtectedRoute
-                    allowedRoles={["teacher", "hod", "principal"]}
-                  >
+                  <ProtectedRoute allowedRoles={["teacher", "hod", "principal"]}>
                     <QuizGeneratorPage />
                   </ProtectedRoute>
                 }
               />
 
-              {/* HOD Routes */}
               <Route
                 path="/class-management"
                 element={
@@ -200,7 +139,6 @@ function App() {
                 }
               />
 
-              {/* Principal Routes */}
               <Route
                 path="/departments"
                 element={
@@ -210,43 +148,47 @@ function App() {
                 }
               />
 
-              {/* Role-specific Protected Routes */}
               <Route
-                path="/teacher/*"
+                path="/courses"
                 element={
-                  <ProtectedRoute
-                    allowedRoles={["teacher", "hod", "principal"]}
-                  >
-                    <Dashboard />
+                  <ProtectedRoute allowedRoles={["student"]}>
+                    <Courses />
                   </ProtectedRoute>
                 }
               />
 
               <Route
-                path="/hod/*"
+                path="/quizzes"
                 element={
-                  <ProtectedRoute allowedRoles={["hod", "principal"]}>
-                    <Dashboard />
+                  <ProtectedRoute allowedRoles={["student"]}>
+                    <StudentQuizzesPage />
                   </ProtectedRoute>
                 }
               />
 
               <Route
-                path="/principal/*"
+                path="/attendance"
                 element={
-                  <ProtectedRoute allowedRoles={["principal"]}>
-                    <Dashboard />
+                  <ProtectedRoute allowedRoles={["student"]}>
+                    <StudentAttendanceDashboard />
                   </ProtectedRoute>
                 }
               />
 
-              {/* Default redirect */}
-              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route
+                path="/reports"
+                element={
+                  <ProtectedRoute allowedRoles={["student"]}>
+                    <Reports />
+                  </ProtectedRoute>
+                }
+              />
+            </Route>
 
-              {/* Catch all route */}
-              <Route path="*" element={<Navigate to="/dashboard" replace />} />
-            </Routes>
-          </div>
+            {/* Redirects */}
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          </Routes>
         </Router>
       </AuthProvider>
     </ThemeProvider>
