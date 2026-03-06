@@ -76,7 +76,7 @@ const Unauthorized: React.FC = () => {
             </div>
 
             {/* Debug Information (Development Only) */}
-            {process.env.NODE_ENV === "development" && (
+            {import.meta.env.DEV && (
               <div className="mt-4 p-3 bg-gray-100 rounded text-xs text-gray-600">
                 <p><strong>Debug Info:</strong></p>
                 <p>Authenticated: {isAuthenticated ? "Yes" : "No"}</p>

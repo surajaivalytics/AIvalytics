@@ -152,7 +152,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         toast.success(response.message || "Password reset instructions sent!");
 
         // In development, show the reset token
-        if (process.env.NODE_ENV === "development" && response.resetToken) {
+        if (import.meta.env.DEV && response.resetToken) {
           console.log("Reset Token (Development Only):", response.resetToken);
           toast.success(
             `Reset token (dev): ${response.resetToken.substring(0, 20)}...`

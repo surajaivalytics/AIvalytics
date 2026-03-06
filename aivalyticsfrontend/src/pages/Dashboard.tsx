@@ -1,6 +1,6 @@
 import React from "react";
 import { useAuth } from "../contexts/AuthContext";
-import Layout from "../components/Layout";
+// import Layout from "../components/Layout";
 import StudentDashboard from "./dashboards/StudentDashboard";
 import TeacherDashboard from "./dashboards/TeacherDashboard";
 import HodDashboard from "./dashboards/HodDashboard";
@@ -31,7 +31,7 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  return <Layout>{renderDashboard()}</Layout>;
+  return renderDashboard();
 };
 
 export default Dashboard;
