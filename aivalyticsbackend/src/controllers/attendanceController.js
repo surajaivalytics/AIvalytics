@@ -1,4 +1,6 @@
-const { supabase } = require("../config/database");
+const { db, admin } = require("../config/database");
+const { TABLES } = require("../config/constants");
+const { formatFirestoreTimestamp } = require("../utils/firebaseUtils");
 
 /**
  * Create a new attendance session (for teachers)
@@ -45,17 +47,11 @@ const createAttendanceSession = async (req, res) => {
     }
 
     // Verify teacher has access to this course
-    const { data: course, error: courseError } = await supabase
-      .from("course")
-      .select("id, name, created_by")
-      .eq("id", course_id)
-      .eq("created_by", teacherId)
-      .single();
+    const courseDoc = await db.collection(TABLES.COURSES).doc(course_id).get();
 
-    if (courseError || !course) {
+    if (!courseDoc.exists || courseDoc.data().created_by !== teacherId) {
       console.error(
         "[Attendance] Course not found or permission denied:",
-        courseError,
         req.body
       );
       return res.status(403).json({
@@ -64,37 +60,27 @@ const createAttendanceSession = async (req, res) => {
       });
     }
 
-    // Create attendance session
-    const { data: session, error: sessionError } = await supabase
-      .from("attendance_session")
-      .insert({
-        course_id,
-        class_id,
-        teacher_id: teacherId,
-        session_date: session_date || new Date().toISOString().split("T")[0],
-        session_time: session_time || new Date().toTimeString().split(" ")[0],
-        session_duration,
-        session_type,
-        location,
-        topic,
-        status: "scheduled",
-        created_by: teacherId,
-        updated_by: teacherId,
-      })
-      .select()
-      .single();
+    const sessionData = {
+      course_id,
+      class_id: class_id || null,
+      teacher_id: teacherId,
+      session_date: session_date || new Date().toISOString().split("T")[0],
+      session_time: session_time || new Date().toTimeString().split(" ")[0],
+      session_duration,
+      session_type,
+      location: location || null,
+      topic: topic || null,
+      status: "scheduled",
+      created_by: teacherId,
+      updated_by: teacherId,
+      created_at: admin.firestore.FieldValue.serverTimestamp(),
+      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+    };
 
-    if (sessionError) {
-      console.error(
-        "[Attendance] Failed to create session:",
-        sessionError,
-        req.body
-      );
-      return res.status(500).json({
-        success: false,
-        message: sessionError.message || "Failed to create session",
-      });
-    }
+    // Create attendance session
+    const sessionRef = await db.collection(TABLES.ATTENDANCE_SESSIONS).add(sessionData);
+    const sessionDoc = await sessionRef.get();
+    const session = { id: sessionRef.id, ...sessionDoc.data() };
 
     console.log("[Attendance] Session created successfully:", session);
     res.status(201).json({
@@ -196,17 +182,12 @@ const markAttendance = async (req, res) => {
     // === END VALIDATION ===
 
     // Verify session exists and teacher has permission
-    const { data: session, error: sessionError } = await supabase
-      .from("attendance_session")
-      .select("id, course_id, teacher_id, status")
-      .eq("id", session_id)
-      .eq("teacher_id", teacherId)
-      .single();
+    const sessionRef = db.collection(TABLES.ATTENDANCE_SESSIONS).doc(session_id);
+    const sessionDoc = await sessionRef.get();
 
-    if (sessionError || !session) {
+    if (!sessionDoc.exists || sessionDoc.data().teacher_id !== teacherId) {
       console.error(
         "[Attendance] Session not found or permission denied:",
-        sessionError,
         req.body
       );
       return res.status(403).json({
@@ -214,6 +195,8 @@ const markAttendance = async (req, res) => {
         message: "Session not found or you don't have permission",
       });
     }
+
+    const session = { id: sessionDoc.id, ...sessionDoc.data() };
 
     // Prepare attendance records for insertion
     const attendanceData = attendance_records.map((record) => ({
@@ -231,105 +214,56 @@ const markAttendance = async (req, res) => {
         userAgent: req.get("User-Agent"),
         timestamp: new Date().toISOString(),
       },
+      updated_at: admin.firestore.FieldValue.serverTimestamp(),
     }));
 
-    // Insert attendance records
-    const { data: attendanceResults, error: attendanceError } = await supabase
-      .from("attendance")
-      .upsert(attendanceData, {
-        onConflict: "session_id,student_id",
-        ignoreDuplicates: false,
-      })
-      .select();
+    // Insert/Update attendance records using batch
+    const batch = db.batch();
+    const attendanceResults = [];
 
-    if (attendanceError) {
-      console.error(
-        "[Attendance] Failed to insert attendance records:",
-        JSON.stringify(
-          {
-            error: attendanceError,
-            details: attendanceError.details,
-            message: attendanceError.message,
-            requestBody: req.body,
-          },
-          null,
-          2
-        )
-      );
-      return res.status(500).json({
-        success: false,
-        message: attendanceError.message || "Failed to mark attendance",
-        details: attendanceError.details,
-      });
+    for (const data of attendanceData) {
+      // Use composite ID to prevent duplicates for same session/student
+      const docId = `${data.session_id}_${data.student_id}`;
+      const docRef = db.collection(TABLES.ATTENDANCE).doc(docId);
+      batch.set(docRef, data, { merge: true });
+      attendanceResults.push({ id: docId, ...data });
     }
 
-    // Calculate attendance counts for session update
-    const presentCount = attendance_records.filter(
-      (record) =>
-        record.attendance_status === "present" ||
-        record.attendance_status === "excused"
-    ).length;
-    const absentCount = attendance_records.filter(
-      (record) => record.attendance_status === "absent"
-    ).length;
-    const lateCount = attendance_records.filter(
-      (record) => record.attendance_status === "late"
-    ).length;
+    await batch.commit();
 
     // Get all attendance records for this session to calculate accurate totals
-    const { data: allAttendanceRecords, error: attendanceFetchError } =
-      await supabase
-        .from("attendance")
-        .select("attendance_status")
-        .eq("session_id", session_id);
+    const allRecordsSnapshot = await db
+      .collection(TABLES.ATTENDANCE)
+      .where("session_id", "==", session_id)
+      .get();
+    
+    const allAttendanceRecords = allRecordsSnapshot.docs.map(doc => doc.data());
 
-    if (attendanceFetchError) {
-      console.error("Error fetching attendance records:", attendanceFetchError);
-      return res.status(500).json({
-        success: false,
-        message: "Failed to fetch attendance records",
-        details: attendanceFetchError.message,
-      });
-    }
-
-    // Calculate totals from all attendance records (including the new ones being inserted)
-    const allRecords = [...allAttendanceRecords, ...attendance_records];
-    const totalStudents = allRecords.length;
-    const totalPresentStudents = allRecords.filter(
+    // Calculate totals from all attendance records
+    const totalStudents = allAttendanceRecords.length;
+    const totalPresentStudents = allAttendanceRecords.filter(
       (record) =>
         record.attendance_status === "present" ||
         record.attendance_status === "excused"
     ).length;
-    const totalAbsentStudents = allRecords.filter(
+    const totalAbsentStudents = allAttendanceRecords.filter(
       (record) => record.attendance_status === "absent"
     ).length;
-    const totalLateStudents = allRecords.filter(
+    const totalLateStudents = allAttendanceRecords.filter(
       (record) => record.attendance_status === "late"
     ).length;
 
     // Update session status with proper counts
-    const { error: updateError } = await supabase
-      .from("attendance_session")
-      .update({
-        status: "completed",
-        attendance_marked: true,
-        total_students: totalStudents,
-        present_students: totalPresentStudents,
-        absent_students: totalAbsentStudents,
-        late_students: totalLateStudents,
-        updated_at: new Date().toISOString(),
-        updated_by: teacherId,
-      })
-      .eq("id", session_id);
-
-    if (updateError) {
-      console.error("Error updating session:", updateError);
-      return res.status(500).json({
-        success: false,
-        message: "Failed to update session statistics",
-        details: updateError.message,
-      });
-    }
+    await sessionRef.update({
+      status: "completed",
+      attendance_marked: true,
+      total_students: totalStudents,
+      present_students: totalPresentStudents,
+      absent_students: totalAbsentStudents,
+      late_students: totalLateStudents,
+      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+      updated_by: teacherId,
+    });
 
     console.log(
       "[Attendance] Attendance marked successfully for session:",

@@ -32,6 +32,7 @@ interface ProfileData {
   updatedAt?: string;
   email?: string;
   age?: number;
+  profilePic?: string;
   class?: {
     id: string;
     name: string;
@@ -106,8 +107,8 @@ const Profile: React.FC = () => {
       if (response.success && response.user) {
         setProfile(response.user);
         setEditForm({
-          username: response.user.username,
-          rollNumber: response.user.rollNumber,
+          username: response.user.username || "",
+          rollNumber: response.user.rollNumber || "",
         });
         console.log("Profile data loaded successfully:", response.user);
       } else {
@@ -123,15 +124,16 @@ const Profile: React.FC = () => {
         retryCount,
       });
 
-      // If it's an authentication error, the token might be invalid
+      // If it's an authentication error, the token might be invalid or profile missing
       if (error.response?.status === 401) {
-        console.log(
-          "Authentication failed, clearing tokens and redirecting to login"
-        );
-        localStorage.removeItem("accessToken");
-        localStorage.removeItem("refreshToken");
-        toast.error("Authentication failed. Please log in again.");
-        navigate("/login");
+        const errorCode = error.response?.data?.code;
+        if (errorCode === "PROFILE_NOT_FOUND") {
+          console.log("Profile not found in backend - user may need to re-sync or complete setup");
+          toast.error("User profile not found. Please try logging out and in again.");
+        } else {
+          console.log("Authentication failed - likely invalid token");
+          toast.error("Session expired or invalid. Please refresh.");
+        }
       } else if (error.response?.status >= 500 && retryCount < 2) {
         // Retry on server errors (up to 2 retries)
         console.log(`Server error, retrying... (attempt ${retryCount + 1})`);
@@ -190,11 +192,7 @@ const Profile: React.FC = () => {
 
       // Handle specific error types
       if (error.response?.status === 401) {
-        errorMessage = "Authentication failed. Please log in again.";
-        localStorage.removeItem("accessToken");
-        localStorage.removeItem("refreshToken");
-        navigate("/login");
-        return;
+        errorMessage = "Authentication failed. Token may be invalid.";
       } else if (error.response?.status === 409) {
         errorMessage =
           error.response?.data?.message ||
@@ -388,18 +386,36 @@ const Profile: React.FC = () => {
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
               <div className="flex items-center gap-6">
                 <div className="relative">
-                  <div className={`h-24 w-24 rounded-full bg-gradient-to-br ${
-                    profile?.role === "student" ? "from-blue-500 to-indigo-600" :
-                    profile?.role === "teacher" ? "from-emerald-500 to-green-600" :
-                    profile?.role === "hod" ? "from-purple-500 to-violet-600" :
-                    "from-gray-500 to-gray-600"
-                  } flex items-center justify-center shadow-lg`}>
-                    <span className="text-4xl">{getRoleIcon(profile?.role || "unknown")}</span>
+                  <div className={`h-24 w-24 rounded-full overflow-hidden flex items-center justify-center shadow-lg border-2 ${
+                    profile?.role === "student" ? "border-blue-400" :
+                    profile?.role === "teacher" ? "border-emerald-400" :
+                    profile?.role === "hod" ? "border-purple-400" :
+                    "border-gray-400"
+                  }`}>
+                    {profile?.profilePic ? (
+                      <img 
+                        src={profile.profilePic} 
+                        alt={profile.username} 
+                        className="h-full w-full object-cover"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${profile?.username}&background=random`;
+                        }}
+                      />
+                    ) : (
+                      <div className={`h-full w-full bg-gradient-to-br ${
+                        profile?.role === "student" ? "from-blue-500 to-indigo-600" :
+                        profile?.role === "teacher" ? "from-emerald-500 to-green-600" :
+                        profile?.role === "hod" ? "from-purple-500 to-violet-600" :
+                        "from-gray-500 to-gray-600"
+                      } flex items-center justify-center`}>
+                        <span className="text-4xl">{getRoleIcon(profile?.role || "unknown")}</span>
+                      </div>
+                    )}
                   </div>
                   <div className={`absolute -bottom-1 -right-1 h-7 w-7 bg-green-500 rounded-full border-2 ${
                     getThemedClasses(isDark, "border-white", "border-gray-800")
-                  } flex items-center justify-center`}>
-                    <div className="h-2.5 w-2.5 bg-white rounded-full"></div>
+                  } flex items-center justify-center shadow-sm`}>
+                    <div className="h-2.5 w-2.5 bg-white rounded-full animate-pulse"></div>
                   </div>
                 </div>
                 

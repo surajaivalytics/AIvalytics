@@ -15,6 +15,7 @@ import Login from "./pages/Login";
 import Register from "./pages/Register";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
+import SelectRole from "./pages/SelectRole";
 import Dashboard from "./pages/Dashboard";
 import Profile from "./pages/Profile";
 import Courses from "./pages/Courses";
@@ -43,6 +44,7 @@ function App() {
               <Route path="/register" element={<Register />} />
               <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/reset-password" element={<ResetPassword />} />
+              <Route path="/select-role" element={<ProtectedRoute><SelectRole /></ProtectedRoute>} />
               <Route path="/unauthorized" element={<Unauthorized />} />
 
               {/* Protected Routes */}

@@ -64,7 +64,7 @@ const SocialIcons: React.FC = () => (
 
 const Login: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
-  const { login, isLoading, isAuthenticated, user } = useAuth();
+  const { login, signInWithGoogle, isLoading, isAuthenticated, user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [loginAttempt, setLoginAttempt] = useState(0);
@@ -91,7 +91,16 @@ const Login: React.FC = () => {
 
   useEffect(() => {
     if (isAuthenticated && user) {
-      navigate(from, { replace: true });
+      // If we're going to the default dashboard, use role-specific path
+      if (from === "/dashboard") {
+        let destination = "/dashboard";
+        if (user.role === "teacher") destination = "/teacher/dashboard";
+        else if (user.role === "hod") destination = "/hod/dashboard";
+        else if (user.role === "principal") destination = "/principal/dashboard";
+        navigate(destination, { replace: true });
+      } else {
+        navigate(from, { replace: true });
+      }
     }
   }, [isAuthenticated, user, navigate, from]);
 
@@ -138,10 +147,12 @@ const Login: React.FC = () => {
             {/* Google Login Button */}
             <button
               type="button"
-              className="w-full flex items-center justify-center space-x-3 py-4 border border-gray-100 rounded-2xl hover:bg-gray-50 transition-all font-medium text-sm"
+              onClick={signInWithGoogle}
+              disabled={isLoading}
+              className="w-full flex items-center justify-center space-x-3 py-4 border border-gray-100 rounded-2xl hover:bg-gray-50 transition-all font-medium text-sm disabled:opacity-50"
             >
               <img src="https://www.svgrepo.com/show/475656/google-color.svg" alt="Google" className="w-5 h-5" />
-              <span>Login with Google</span>
+              <span>{isLoading ? "Processing..." : "Login with Google"}</span>
             </button>
 
             <div className="relative py-4">

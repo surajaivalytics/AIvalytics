@@ -117,7 +117,7 @@ const RATE_LIMITS = {
 
 // Database Table Names
 const TABLES = {
-  USERS: "user",
+  USERS: "users",
   ROLES: "roles",
   CLASSES: "class",
   DEPARTMENTS: "department",
@@ -127,6 +127,10 @@ const TABLES = {
   SCORES: "score",
   RESOURCES: "resources",
   REPORTS: "report",
+  ATTENDANCE_SESSIONS: "attendance_session",
+  ATTENDANCE: "attendance",
+  ATTENDANCE_OVERVIEW: "attendance_overview",
+  ATTENDANCE_SUMMARY: "attendance_summary",
 };
 
 // Cookie Configuration

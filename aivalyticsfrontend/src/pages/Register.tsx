@@ -82,7 +82,7 @@ const IllustrationRight = () => (
 const Register: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const { register: registerUser, isLoading } = useAuth();
+  const { register: registerUser, signInWithGoogle, isLoading } = useAuth();
   const navigate = useNavigate();
 
   const {
@@ -121,7 +121,13 @@ const Register: React.FC = () => {
   const onSubmit = async (data: RegisterData) => {
     try {
       await registerUser(data);
-      navigate("/dashboard");
+      
+      let destination = "/dashboard";
+      if (data.role === "teacher") destination = "/teacher/dashboard";
+      else if (data.role === "hod") destination = "/hod/dashboard";
+      else if (data.role === "principal") destination = "/principal/dashboard";
+      
+      navigate(destination);
     } catch (error: any) {
       setError("root", {
         type: "manual",
@@ -157,6 +163,25 @@ const Register: React.FC = () => {
           </div>
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+            {/* Google Login Button */}
+            <button
+              type="button"
+              onClick={signInWithGoogle}
+              disabled={isLoading}
+              className="w-full flex items-center justify-center space-x-3 py-4 border border-gray-100 rounded-2xl hover:bg-gray-50 transition-all font-medium text-sm disabled:opacity-50"
+            >
+              <img src="https://www.svgrepo.com/show/475656/google-color.svg" alt="Google" className="w-5 h-5" />
+              <span>{isLoading ? "Processing..." : "Sign up with Google"}</span>
+            </button>
+
+            <div className="relative py-4">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-gray-50"></div>
+              </div>
+              <div className="relative flex justify-center text-xs">
+                <span className="bg-white px-4 text-gray-300">Or</span>
+              </div>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Username */}
               <div className="space-y-1">

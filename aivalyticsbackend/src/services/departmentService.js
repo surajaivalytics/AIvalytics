@@ -1,5 +1,6 @@
-const { supabaseAdmin } = require("../config/database");
+const { auth, db, admin } = require("../config/firebaseAdmin");
 const logger = require("../config/logger");
+const { formatFirestoreTimestamp } = require("../utils/firebaseUtils");
 const {
   HTTP_STATUS,
   ERROR_MESSAGES,
@@ -9,7 +10,7 @@ const {
 
 /**
  * Department Service
- * CRUD operations for department management
+ * CRUD operations for department management using Firebase Firestore
  */
 class DepartmentService {
   /**
@@ -20,36 +21,38 @@ class DepartmentService {
   async getAllDepartments(options = {}) {
     try {
       const { page = 1, limit = 10, search = "" } = options;
-      const offset = (page - 1) * limit;
+      
+      let query = db.collection(TABLES.DEPARTMENTS);
 
-      let query = supabaseAdmin
-        .from(TABLES.DEPARTMENTS)
-        .select("*", { count: "exact" })
-        .order("created_at", { ascending: false });
+      // Add search filter if provided (Firestore doesn't support ilike, using simple startsWith/contains or local filtering)
+      // For simple search, we'll fetch all and filter or use basic Firestore queries
+      let departmentsSnapshot = await query.orderBy("createdAt", "desc").get();
+      
+      let departments = departmentsSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        createdAt: formatFirestoreTimestamp(doc.data().createdAt),
+        updatedAt: formatFirestoreTimestamp(doc.data().updatedAt)
+      }));
 
-      // Add search filter if provided
       if (search) {
-        query = query.ilike("name", `%${search}%`);
+        departments = departments.filter(dept => 
+          dept.name.toLowerCase().includes(search.toLowerCase())
+        );
       }
 
-      // Add pagination
-      query = query.range(offset, offset + limit - 1);
-
-      const { data: departments, error, count } = await query;
-
-      if (error) {
-        logger.error(`Get departments failed: ${error.message}`);
-        throw new Error("Failed to fetch departments");
-      }
+      const total = departments.length;
+      const totalPages = Math.ceil(total / limit);
+      const paginatedDepartments = departments.slice((page - 1) * limit, page * limit);
 
       return {
         success: true,
-        departments,
+        departments: paginatedDepartments,
         pagination: {
           page,
           limit,
-          total: count,
-          totalPages: Math.ceil(count / limit),
+          total,
+          totalPages,
         },
       };
     } catch (error) {
@@ -65,16 +68,19 @@ class DepartmentService {
    */
   async getDepartmentById(departmentId) {
     try {
-      const { data: department, error } = await supabaseAdmin
-        .from(TABLES.DEPARTMENTS)
-        .select("*")
-        .eq("id", departmentId)
-        .single();
+      const deptDoc = await db.collection(TABLES.DEPARTMENTS).doc(departmentId).get();
 
-      if (error || !department) {
+      if (!deptDoc.exists) {
         logger.warn(`Department not found: ${departmentId}`);
         throw new Error("Department not found");
       }
+
+      const department = {
+        id: deptDoc.id,
+        ...deptDoc.data(),
+        createdAt: formatFirestoreTimestamp(deptDoc.data().createdAt),
+        updatedAt: formatFirestoreTimestamp(deptDoc.data().updatedAt)
+      };
 
       return {
         success: true,
@@ -97,38 +103,41 @@ class DepartmentService {
       const { name } = departmentData;
 
       // Check if department name already exists
-      const { data: existingName } = await supabaseAdmin
-        .from(TABLES.DEPARTMENTS)
-        .select("id")
-        .eq("name", name)
-        .single();
+      const existingQuery = await db.collection(TABLES.DEPARTMENTS)
+        .where("name", "==", name.trim())
+        .limit(1)
+        .get();
 
-      if (existingName) {
+      if (!existingQuery.empty) {
         throw new Error("Department name already exists");
       }
 
-      // Create department with only name field
-      const { data: newDepartment, error: createError } = await supabaseAdmin
-        .from(TABLES.DEPARTMENTS)
-        .insert({
-          name: name.trim(),
-        })
-        .select("*")
-        .single();
+      // Create department
+      const newDeptRef = db.collection(TABLES.DEPARTMENTS).doc();
+      const newDeptData = {
+        name: name.trim(),
+        createdBy: createdBy,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      };
 
-      if (createError) {
-        logger.error(`Create department failed: ${createError.message}`);
-        throw new Error("Failed to create department");
-      }
+      await newDeptRef.set(newDeptData);
+      
+      const createdDept = {
+        id: newDeptRef.id,
+        ...newDeptData,
+        createdAt: new Date().toISOString(), // Approximation for immediate response
+        updatedAt: new Date().toISOString()
+      };
 
       logger.info(
-        `Department created: ${newDepartment.name} by user ${createdBy}`,
+        `Department created: ${createdDept.name} by user ${createdBy}`,
       );
 
       return {
         success: true,
         message: "Department created successfully",
-        department: newDepartment,
+        department: createdDept,
       };
     } catch (error) {
       logger.error(`Create department error: ${error.message}`);
@@ -146,35 +155,31 @@ class DepartmentService {
   async updateDepartment(departmentId, updateData, updatedBy) {
     try {
       const { name } = updateData;
+      const deptRef = db.collection(TABLES.DEPARTMENTS).doc(departmentId);
+      const deptDoc = await deptRef.get();
 
-      // Check if department exists
-      const { data: existingDepartment, error: fetchError } = await supabaseAdmin
-        .from(TABLES.DEPARTMENTS)
-        .select("*")
-        .eq("id", departmentId)
-        .single();
-
-      if (fetchError || !existingDepartment) {
+      if (!deptDoc.exists) {
         throw new Error("Department not found");
       }
 
-      // Check if new name already exists (excluding current department)
-      if (name && name !== existingDepartment.name) {
-        const { data: nameExists } = await supabaseAdmin
-          .from(TABLES.DEPARTMENTS)
-          .select("id")
-          .eq("name", name)
-          .neq("id", departmentId)
-          .single();
+      const existingData = deptDoc.data();
 
-        if (nameExists) {
+      // Check if new name already exists (excluding current department)
+      if (name && name !== existingData.name) {
+        const nameExistsQuery = await db.collection(TABLES.DEPARTMENTS)
+          .where("name", "==", name.trim())
+          .get();
+        
+        const otherDocs = nameExistsQuery.docs.filter(doc => doc.id !== departmentId);
+        if (otherDocs.length > 0) {
           throw new Error("Department name already exists");
         }
       }
 
       // Prepare update data
       const updateFields = {
-        updated_at: new Date().toISOString(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedBy: updatedBy
       };
 
       if (name) {
@@ -182,17 +187,15 @@ class DepartmentService {
       }
 
       // Update department
-      const { data: updatedDepartment, error: updateError } = await supabaseAdmin
-        .from(TABLES.DEPARTMENTS)
-        .update(updateFields)
-        .eq("id", departmentId)
-        .select("*")
-        .single();
-
-      if (updateError) {
-        logger.error(`Update department failed: ${updateError.message}`);
-        throw new Error("Failed to update department");
-      }
+      await deptRef.update(updateFields);
+      
+      const updatedDoc = await deptRef.get();
+      const updatedDepartment = {
+        id: updatedDoc.id,
+        ...updatedDoc.data(),
+        createdAt: formatFirestoreTimestamp(updatedDoc.data().createdAt),
+        updatedAt: formatFirestoreTimestamp(updatedDoc.data().updatedAt)
+      };
 
       logger.info(
         `Department updated: ${updatedDepartment.name} by user ${updatedBy}`,
@@ -217,50 +220,39 @@ class DepartmentService {
    */
   async deleteDepartment(departmentId, deletedBy) {
     try {
-      // Check if department exists
-      const { data: existingDepartment, error: fetchError } = await supabaseAdmin
-        .from(TABLES.DEPARTMENTS)
-        .select("*")
-        .eq("id", departmentId)
-        .single();
+      const deptRef = db.collection(TABLES.DEPARTMENTS).doc(departmentId);
+      const deptDoc = await deptRef.get();
 
-      if (fetchError || !existingDepartment) {
+      if (!deptDoc.exists) {
         throw new Error("Department not found");
       }
 
       // Check if department has associated classes
-      const { data: associatedClasses } = await supabaseAdmin
-        .from(TABLES.CLASSES)
-        .select("id")
-        .eq("department_id", departmentId);
+      const classesQuery = await db.collection(TABLES.CLASSES)
+        .where("departmentId", "==", departmentId)
+        .limit(1)
+        .get();
 
-      if (associatedClasses && associatedClasses.length > 0) {
+      if (!classesQuery.empty) {
         throw new Error("Cannot delete department with associated classes");
       }
 
       // Check if department has associated courses
-      const { data: associatedCourses } = await supabaseAdmin
-        .from(TABLES.COURSES)
-        .select("id")
-        .eq("department_id", departmentId);
+      const coursesQuery = await db.collection(TABLES.COURSES)
+        .where("departmentId", "==", departmentId)
+        .limit(1)
+        .get();
 
-      if (associatedCourses && associatedCourses.length > 0) {
+      if (!coursesQuery.empty) {
         throw new Error("Cannot delete department with associated courses");
       }
 
-      // Hard delete department (actually remove from database)
-      const { error: deleteError } = await supabaseAdmin
-        .from(TABLES.DEPARTMENTS)
-        .delete()
-        .eq("id", departmentId);
-
-      if (deleteError) {
-        logger.error(`Delete department failed: ${deleteError.message}`);
-        throw new Error("Failed to delete department");
-      }
+      // Hard delete department
+      const deptName = deptDoc.data().name;
+      await deptRef.delete();
 
       logger.info(
-        `Department deleted: ${existingDepartment.name} by user ${deletedBy}`,
+        `Department deleted: ${deptName} by user ${deletedBy}`,
       );
 
       return {
@@ -279,27 +271,30 @@ class DepartmentService {
    */
   async getDepartmentStats() {
     try {
-      // Get total departments
-      const { count: totalDepartments } = await supabaseAdmin
-        .from(TABLES.DEPARTMENTS)
-        .select("*", { count: "exact", head: true });
+      const deptsSnapshot = await db.collection(TABLES.DEPARTMENTS).get();
+      const totalDepartments = deptsSnapshot.size;
 
-      // Get departments with classes count
-      const { data: departmentsWithClasses } = await supabaseAdmin
-        .from(TABLES.DEPARTMENTS)
-        .select(
-          `
-          id,
-          name,
-          classes:class(count)
-        `,
-        );
+      // In Firestore, we'd typically need to join or have counters for classes
+      // For now, let's return total count and an empty list for departmentsWithClasses if not easily joinable
+      // Or we can do a mapping but it might be expensive
+      const departmentsWithClasses = [];
+      for (const doc of deptsSnapshot.docs) {
+        const classesSnapshot = await db.collection(TABLES.CLASSES)
+          .where("departmentId", "==", doc.id)
+          .get();
+        
+        departmentsWithClasses.push({
+          id: doc.id,
+          name: doc.data().name,
+          classes: { count: classesSnapshot.size }
+        });
+      }
 
       return {
         success: true,
         stats: {
-          totalDepartments: totalDepartments || 0,
-          departmentsWithClasses: departmentsWithClasses || [],
+          totalDepartments,
+          departmentsWithClasses,
         },
       };
     } catch (error) {
