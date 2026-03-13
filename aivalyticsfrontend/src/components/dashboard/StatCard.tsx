@@ -10,6 +10,7 @@ interface StatCardProps {
   trend?: string;
   trendLabel?: string;
   className?: string;
+  decoration?: React.ReactNode;
 }
 
 const StatCard: React.FC<StatCardProps> = ({
@@ -20,6 +21,7 @@ const StatCard: React.FC<StatCardProps> = ({
   trend,
   trendLabel,
   className,
+  decoration,
 }) => {
   const isTrendPositive = trend?.startsWith("+");
   const isTrendNegative = trend?.startsWith("-");
@@ -27,11 +29,11 @@ const StatCard: React.FC<StatCardProps> = ({
   return (
     <Card
       className={cn(
-        "overflow-hidden border-gray-100 dark:border-gray-800 hover:shadow-md transition-all",
+        "relative overflow-hidden border-gray-100 dark:border-gray-800 hover:shadow-md transition-all",
         className
       )}
     >
-      <CardContent className="p-6">
+      <CardContent className="p-6 relative z-10">
         <div className="flex items-center justify-between mb-4">
           <p className="text-sm font-medium text-gray-700 dark:text-gray-300 font-secondary">
             {title}
@@ -53,8 +55,8 @@ const StatCard: React.FC<StatCardProps> = ({
                     isTrendPositive && "text-green-600 dark:text-green-500",
                     isTrendNegative && "text-red-600 dark:text-red-500",
                     !isTrendPositive &&
-                      !isTrendNegative &&
-                      "text-gray-600 dark:text-gray-400"
+                    !isTrendNegative &&
+                    "text-gray-600 dark:text-gray-400"
                   )}
                 >
                   {trend}
@@ -80,6 +82,7 @@ const StatCard: React.FC<StatCardProps> = ({
           )}
         </div>
       </CardContent>
+      {decoration}
     </Card>
   );
 };

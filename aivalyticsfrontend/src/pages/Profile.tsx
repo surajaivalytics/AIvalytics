@@ -20,7 +20,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { useTheme } from "../contexts/ThemeContext";
 import { getThemedClasses } from "../utils/themeUtils";
 import apiService from "../services/api";
-import Layout from "../components/Layout";
+// import Layout from "../components/Layout";
 import { useNavigate } from "react-router-dom";
 
 interface ProfileData {
@@ -321,22 +321,20 @@ const Profile: React.FC = () => {
 
   if (loading && !profile) {
     return (
-      <Layout>
-        <div className={`min-h-screen flex justify-center items-center ${
-          getThemedClasses(
-            isDark,
-            "bg-gray-50",
-            "bg-gray-900"
-          )
-        }`}>
-          <div className="flex flex-col items-center space-y-4">
-            <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary border-t-transparent"></div>
-            <p className={getThemedClasses(isDark, "text-gray-600", "text-gray-300")}>
-              Loading profile...
-            </p>
-          </div>
+      <div className={`min-h-screen flex justify-center items-center ${
+        getThemedClasses(
+          isDark,
+          "bg-gray-50",
+          "bg-gray-900"
+        )
+      }`}>
+        <div className="flex flex-col items-center space-y-4">
+          <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary border-t-transparent"></div>
+          <p className={getThemedClasses(isDark, "text-gray-600", "text-gray-300")}> 
+            Loading profile...
+          </p>
         </div>
-      </Layout>
+      </div>
     );
   }
 
@@ -344,29 +342,27 @@ const Profile: React.FC = () => {
   const token = localStorage.getItem("accessToken");
   if (!token && !user) {
     return (
-      <Layout>
-        <div className={`min-h-screen flex justify-center items-center ${getThemedClasses(
+      <div className={`min-h-screen flex justify-center items-center ${getThemedClasses(
+          isDark,
+          "bg-gray-50",
+          "bg-gray-900"
+        )}`}
+      >
+        <div
+          className={`${getThemedClasses(
             isDark,
-            "bg-gray-50",
-            "bg-gray-900"
+            "text-gray-600",
+            "text-gray-300"
           )}`}
         >
-          <div
-            className={`${getThemedClasses(
-              isDark,
-              "text-gray-600",
-              "text-gray-300"
-            )}`}
-          >
-            Redirecting to login...
-          </div>
+          Redirecting to login...
         </div>
-      </Layout>
+      </div>
     );
   }
 
   return (
-    <Layout>
+    <>
       <div className={`min-h-screen py-8 px-4 sm:px-6 lg:px-8 ${
         getThemedClasses(
           isDark,
@@ -754,7 +750,7 @@ const Profile: React.FC = () => {
           </div>
         )}
       </div>
-    </Layout>
+    </>
   );
 };
 
