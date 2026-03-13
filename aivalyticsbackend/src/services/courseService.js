@@ -379,13 +379,111 @@ class CourseService {
           .where("deleted_at", "==", null)
           .get();
         
-        stats = { totalCourses: snapshot.size, totalEnrollments: 0 }; // Simplified
+        // Get total enrollments for teacher's courses
+        let totalEnrollments = 0;
+        const courseIds = snapshot.docs.map(doc => doc.id);
+        
+        if (courseIds.length > 0) {
+          const studentsSnapshot = await db.collection(TABLES.USERS)
+            .where("role", "==", "student")
+            .get();
+          
+          totalEnrollments = studentsSnapshot.docs.filter(doc => {
+            const userCourseIds = doc.data().course_ids || [];
+            return userCourseIds.some(id => courseIds.includes(id));
+          }).length;
+        }
+
+        stats = { totalCourses: snapshot.size, totalEnrollments };
       } else {
         const snapshot = await db.collection(TABLES.COURSES).where("deleted_at", "==", null).get();
-        stats = { totalCourses: snapshot.size, totalEnrollments: 0 };
+        
+        // Total enrollments across all courses
+        const studentsSnapshot = await db.collection(TABLES.USERS)
+          .where("role", "==", "student")
+          .get();
+        
+        const totalEnrollments = studentsSnapshot.docs.reduce((acc, doc) => {
+          return acc + (doc.data().course_ids ? doc.data().course_ids.length : 0);
+        }, 0);
+
+        stats = { totalCourses: snapshot.size, totalEnrollments };
       }
       return { success: true, stats };
     } catch (error) {
+      logger.error(`Get course stats error: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Get course timeline analytics
+   */
+  async getCourseTimelineAnalytics(user) {
+    try {
+      let query = db.collection(TABLES.COURSES).where("deleted_at", "==", null);
+      if (user.role === "teacher") {
+        query = query.where("created_by", "==", user.id);
+      }
+      
+      const snapshot = await query.get();
+      const courses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      
+      const now = new Date();
+      const analytics = {
+        not_started: 0,
+        in_progress: 0,
+        completed: 0,
+        total: courses.length
+      };
+
+      courses.forEach(course => {
+        const start = new Date(course.start_date || (course.created_at ? course.created_at.toDate() : new Date()));
+        const duration = course.duration_months || 6;
+        const end = new Date(start);
+        end.setMonth(start.getMonth() + duration);
+
+        if (now < start) analytics.not_started++;
+        else if (now <= end) analytics.in_progress++;
+        else analytics.completed++;
+      });
+
+      return {
+        success: true,
+        analytics
+      };
+    } catch (error) {
+      logger.error(`Timeline analytics error: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Extend course duration
+   */
+  async extendCourseDuration(courseId, additionalMonths) {
+    try {
+      const courseRef = db.collection(TABLES.COURSES).doc(courseId);
+      const courseDoc = await courseRef.get();
+
+      if (!courseDoc.exists || courseDoc.data().deleted_at) {
+        throw new Error("Course not found");
+      }
+
+      const currentDuration = parseInt(courseDoc.data().duration_months) || 6;
+      const newDuration = currentDuration + additionalMonths;
+
+      await courseRef.update({
+        duration_months: newDuration,
+        updated_at: admin.firestore.FieldValue.serverTimestamp()
+      });
+
+      return {
+        success: true,
+        message: `Course duration extended by ${additionalMonths} months to ${newDuration} months`,
+      };
+    } catch (error) {
+      logger.error(`Extend duration error: ${error.message}`);
       throw error;
     }
   }

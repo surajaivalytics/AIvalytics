@@ -40,18 +40,23 @@ class AuthService {
       const userRef = db.collection(TABLES.USERS).doc(uid);
       const userDoc = await userRef.get();
 
+      const existingData = userDoc.exists ? userDoc.data() : {};
+      
       const profileData = {
-        username: username || (email ? email.split('@')[0] : "user"),
-        email: email || "",
-        rollNumber: rollNumber || "",
-        firstName: firstName || "",
-        lastName: lastName || "",
-        profilePic: profilePic || "",
+        username: username || existingData.username || (email ? email.split('@')[0] : "user"),
+        email: email || existingData.email || "",
+        rollNumber: rollNumber || existingData.rollNumber || existingData.roll_number || "",
+        firstName: firstName || existingData.firstName || "",
+        lastName: lastName || existingData.lastName || "",
+        profilePic: profilePic || existingData.profilePic || existingData.profile_pic || "",
         updatedAt: admin.firestore.FieldValue.serverTimestamp()
       };
 
+      // Only set role if it's provided and doesn't already exist or if specifically updating it
       if (role) {
         profileData.role = role;
+      } else if (existingData.role) {
+        profileData.role = existingData.role;
       }
 
       if (!userDoc.exists) {

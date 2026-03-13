@@ -327,48 +327,32 @@ const getStudentAttendance = async (req, res) => {
     }
 
     // Build query
-    let query = supabase
-      .from("attendance_overview")
-      .select("*")
-      .eq("student_id", targetStudentId)
-      .order("session_date", { ascending: false })
-      .range(offset, offset + limit - 1);
+    let query = db.collection(TABLES.ATTENDANCE_OVERVIEW)
+      .where("student_id", "==", targetStudentId)
+      .orderBy("session_date", "desc");
 
-    if (course_id) query = query.eq("course_id", course_id);
-    if (start_date) query = query.gte("session_date", start_date);
-    if (end_date) query = query.lte("session_date", end_date);
+    if (course_id) query = query.where("course_id", "==", course_id);
+    if (start_date) query = query.where("session_date", ">=", start_date);
+    if (end_date) query = query.where("session_date", "<=", end_date);
 
-    const { data: attendance, error } = await query;
+    // Pagination for Firestore
+    const snapshot = await query.limit(parseInt(limit)).offset(parseInt(offset)).get();
+    const attendance = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
     console.log("[Attendance] Attendance query result:", {
       attendanceCount: attendance?.length || 0,
-      error,
     });
 
-    if (error) {
-      console.error("Error fetching student attendance:", error);
-      return res.status(500).json({
-        success: false,
-        message: "Failed to fetch attendance records",
-        error: error.message,
-      });
-    }
-
     // Get attendance summary
-    const { data: summary, error: summaryError } = await supabase
-      .from("attendance_summary")
-      .select("*")
-      .eq("student_id", targetStudentId);
+    const summarySnapshot = await db.collection(TABLES.ATTENDANCE_SUMMARY)
+      .where("student_id", "==", targetStudentId)
+      .get();
+    
+    const summary = summarySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
     console.log("[Attendance] Summary query result:", {
       summaryCount: summary?.length || 0,
-      error: summaryError,
     });
-
-    if (summaryError) {
-      console.error("Error fetching attendance summary:", summaryError);
-      // Don't fail the request, just log the error and continue with empty summary
-    }
 
     // Ensure data is in the correct format
     const responseData = {
@@ -423,62 +407,29 @@ const getStudentAttendanceRecords = async (req, res) => {
 
     console.log(`📊 Fetching attendance records for student: ${studentId}`);
 
-    // First, let's check if there are any attendance records for this student
-    const { data: checkRecords, error: checkError } = await supabase
-      .from("attendance")
-      .select("id, student_id, attendance_status")
-      .eq("student_id", studentId);
-
-    if (checkError) {
-      console.error("❌ Error checking attendance records:", checkError);
-      return res.status(500).json({
-        success: false,
-        message: "Failed to check attendance records",
-        error: checkError.message,
-      });
-    }
-
-    console.log(
-      `🔍 Found ${
-        checkRecords?.length || 0
-      } basic attendance records for student ${studentId}`
-    );
-
     // Get all attendance records for this student with full details
-    const { data: records, error } = await supabase
-      .from("attendance")
-      .select(
-        `
-        id,
-        session_id,
-        student_id,
-        attendance_status,
-        created_at,
-        session:session_id (
-          id,
-          course_id,
-          session_date,
-          session_time,
-          session_duration,
-          status,
-          course:course_id (
-            id,
-            name
-          )
-        )
-      `
-      )
-      .eq("student_id", studentId)
-      .order("created_at", { ascending: false });
+    const recordsSnapshot = await db.collection(TABLES.ATTENDANCE)
+      .where("student_id", "==", studentId)
+      .orderBy("created_at", "desc")
+      .get();
 
-    if (error) {
-      console.error("❌ Error fetching student attendance records:", error);
-      return res.status(500).json({
-        success: false,
-        message: "Failed to fetch attendance records",
-        error: error.message,
-      });
-    }
+    const records = await Promise.all(recordsSnapshot.docs.map(async (doc) => {
+      const data = doc.data();
+      // Manual join for session and course
+      const sessionDoc = await db.collection(TABLES.ATTENDANCE_SESSIONS).doc(data.session_id).get();
+      let sessionData = sessionDoc.exists ? { id: sessionDoc.id, ...sessionDoc.data() } : null;
+      
+      if (sessionData && sessionData.course_id) {
+        const courseDoc = await db.collection(TABLES.COURSES).doc(sessionData.course_id).get();
+        sessionData.course = courseDoc.exists ? { id: courseDoc.id, ...courseDoc.data() } : null;
+      }
+
+      return {
+        id: doc.id,
+        ...data,
+        session: sessionData
+      };
+    }));
 
     console.log(
       `✅ Found ${
@@ -529,22 +480,14 @@ const getAttendanceAnalytics = async (req, res) => {
 
     const { course_id } = req.query;
 
-    let summaryQuery = supabase.from("attendance_summary").select("*");
+    let summaryQuery = db.collection(TABLES.ATTENDANCE_SUMMARY);
 
     if (course_id) {
-      summaryQuery = summaryQuery.eq("course_id", course_id);
+      summaryQuery = summaryQuery.where("course_id", "==", course_id);
     }
 
-    const { data: summaryData, error: summaryError } = await summaryQuery;
-
-    if (summaryError) {
-      console.error("Error fetching attendance summary:", summaryError);
-      return res.status(500).json({
-        success: false,
-        message: "Failed to fetch attendance analytics",
-        error: summaryError.message,
-      });
-    }
+    const summarySnapshot = await summaryQuery.get();
+    const summaryData = summarySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
     // Calculate analytics
     const analytics = {
@@ -590,16 +533,13 @@ const getAttendanceSessions = async (req, res) => {
         .status(400)
         .json({ success: false, message: "Course ID is required" });
     }
-    const { data: sessions, error } = await supabase
-      .from("attendance_session")
-      .select("*")
-      .eq("course_id", course_id)
-      .order("session_date", { ascending: false })
-      .order("session_time", { ascending: false });
-    if (error) {
-      console.error("[Attendance] Failed to fetch sessions:", error, req.query);
-      return res.status(500).json({ success: false, message: error.message });
-    }
+    const snapshot = await db.collection(TABLES.ATTENDANCE_SESSIONS)
+      .where("course_id", "==", course_id)
+      .orderBy("session_date", "desc")
+      .orderBy("session_time", "desc")
+      .get();
+    
+    const sessions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     res.json({ success: true, data: sessions });
   } catch (error) {
     console.error(
@@ -620,15 +560,21 @@ const getSessionAttendance = async (req, res) => {
         .status(400)
         .json({ success: false, message: "Session ID is required" });
     }
-    const { data, error } = await supabase
-      .from("attendance")
-      .select(
-        "id, student_id, attendance_status, notes, arrival_time, departure_time"
-      )
-      .eq("session_id", session_id);
-    if (error) {
-      return res.status(500).json({ success: false, message: error.message });
-    }
+    const snapshot = await db.collection(TABLES.ATTENDANCE)
+      .where("session_id", "==", session_id)
+      .get();
+    
+    const data = snapshot.docs.map(doc => {
+      const docData = doc.data();
+      return {
+        id: doc.id,
+        student_id: docData.student_id,
+        attendance_status: docData.attendance_status,
+        notes: docData.notes,
+        arrival_time: docData.arrival_time,
+        departure_time: docData.departure_time
+      };
+    });
     res.json({ success: true, data });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
