@@ -2,12 +2,15 @@ export interface User {
   id: string;
   username: string;
   email?: string;
-  rollNumber: string;
-  role: UserRole;
+  rollNumber?: string;
+  role?: UserRole;
+  firstName?: string;
+  lastName?: string;
   age?: number;
   classId?: string;
   createdAt?: string;
   updatedAt?: string;
+  profilePic?: string;
   class?: {
     id: string;
     name: string;
@@ -34,6 +37,8 @@ export interface RegisterData {
   confirmPassword: string;
   rollNumber: string;
   role: UserRole;
+  firstName?: string;
+  lastName?: string;
   age?: number;
   classId?: string;
 }

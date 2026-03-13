@@ -17,6 +17,7 @@ import Login from "./pages/Login";
 import Register from "./pages/Register";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
+import SelectRole from "./pages/SelectRole";
 import Dashboard from "./pages/Dashboard";
 import Profile from "./pages/Profile";
 import Courses from "./pages/Courses";
@@ -38,26 +39,46 @@ function App() {
     <ThemeProvider>
       <AuthProvider>
         <Router>
-          <ThemedToaster />
+          <div className="App bg-white dark:bg-gray-900 min-h-screen transition-colors duration-300">
+            <ThemedToaster />
 
-          <Routes>
-            {/* Public Routes */}
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
-            <Route path="/forgot-password" element={<ForgotPassword />} />
-            <Route path="/reset-password" element={<ResetPassword />} />
-            <Route path="/unauthorized" element={<Unauthorized />} />
+            <Routes>
+              {/* Public Routes */}
+              <Route path="/login" element={<Login />} />
+              <Route path="/register" element={<Register />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
+              <Route path="/select-role" element={<ProtectedRoute><SelectRole /></ProtectedRoute>} />
+              <Route path="/unauthorized" element={<Unauthorized />} />
 
-            {/* Protected Layout Routes */}
-            <Route
-              element={
-                <ProtectedRoute>
-                  <Layout />
-                </ProtectedRoute>
-              }
-            >
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/profile" element={<Profile />} />
+              {/* Protected Routes */}
+              <Route
+                path="/dashboard"
+                element={
+                  <ProtectedRoute>
+                    <Dashboard />
+                  </ProtectedRoute>
+                }
+              />
+
+              <Route
+                path="/profile"
+                element={
+                  <ProtectedRoute>
+                    <Profile />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Student Routes */}
+              <Route
+                path="/courses"
+                element={
+                  <ProtectedRoute allowedRoles={["student"]}>
+                    <Courses />
+                  </ProtectedRoute>
+                }
+              />
 
               <Route
                 path="/academic-management/*"

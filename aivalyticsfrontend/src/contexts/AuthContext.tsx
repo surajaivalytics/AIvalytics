@@ -6,7 +6,16 @@ import React, {
   useCallback,
 } from "react";
 import { toast } from "react-hot-toast";
-import apiService from "../services/api";
+import {
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
+  sendPasswordResetEmail,
+  User as FirebaseUser
+} from "firebase/auth";
+import { auth, db } from "../config/firebase";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 import {
   User,
   LoginCredentials,
@@ -25,7 +34,9 @@ interface AuthContextType {
   forgotPassword: (data: ForgotPasswordData) => Promise<void>;
   resetPassword: (data: ResetPasswordData) => Promise<void>;
   refreshToken: () => Promise<void>;
+  signInWithGoogle: () => Promise<void>;
   clearAuthState: () => void;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -45,7 +56,6 @@ interface AuthProviderProps {
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isInitializing, setIsInitializing] = useState(true);
 
   const isAuthenticated = !!user;
 
@@ -54,69 +64,121 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     setUser(null);
     localStorage.removeItem("accessToken");
     localStorage.removeItem("refreshToken");
-    localStorage.removeItem("token"); // Clean up any legacy tokens
     console.log("🔐 Auth state cleared");
   }, []);
 
-  // Check if user is authenticated on app load
-  useEffect(() => {
-    const initializeAuth = async () => {
-      try {
-        const token = localStorage.getItem("accessToken");
+  // Sync user data from Firestore
+  const syncUserFromFirestore = async (firebaseUser: FirebaseUser) => {
+    try {
+      const userDoc = await getDoc(doc(db, "users", firebaseUser.uid));
+      
+      // Get ID token for backend authentication
+      const idToken = await firebaseUser.getIdToken();
+      localStorage.setItem("accessToken", idToken);
 
-        if (!token) {
-          console.log("🔐 No token found, skipping auth check");
-          setIsLoading(false);
-          setIsInitializing(false);
-          return;
+      if (userDoc.exists()) {
+        const userData = userDoc.data() as User;
+        // Update profile pic if it changed or is missing
+        if (firebaseUser.photoURL && userData.profilePic !== firebaseUser.photoURL) {
+          await setDoc(doc(db, "users", firebaseUser.uid), { profilePic: firebaseUser.photoURL }, { merge: true });
+          userData.profilePic = firebaseUser.photoURL;
         }
+        setUser(userData);
+        return userData.role ? true : false;
+      } else {
+        console.warn("🔐 User document not found in Firestore. New social user detected.");
+        // Create initial skeleton for social user
+        const userData: User = {
+          id: firebaseUser.uid,
+          username: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || "user",
+          email: firebaseUser.email || "",
+          firstName: firebaseUser.displayName?.split(' ')[0] || "",
+          lastName: firebaseUser.displayName?.split(' ').slice(1).join(' ') || "",
+          profilePic: firebaseUser.photoURL || "",
+          createdAt: new Date().toISOString(),
+          // role will be set by the RoleSelection page
+        };
+        await setDoc(doc(db, "users", firebaseUser.uid), userData);
+        setUser(userData);
+        return false; // Role not set
+      }
+    } catch (error) {
+      console.error("🔐 Error syncing user data:", error);
+      return false;
+    }
+  };
 
-        console.log("🔐 Verifying existing token...");
-        const response = await apiService.verifyToken();
-
-        if (response.success && response.user) {
-          console.log("🔐 Token valid, setting user:", response.user);
-          setUser(response.user);
+  // Listen for Firebase Auth changes
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      try {
+        setIsLoading(true);
+        if (firebaseUser) {
+          console.log("🔐 Firebase User detected:", firebaseUser.email);
+          await syncUserFromFirestore(firebaseUser);
         } else {
-          console.log("🔐 Token invalid, clearing auth state");
+          console.log("🔐 No Firebase User found");
           clearAuthState();
         }
       } catch (error) {
-        console.error("🔐 Token verification failed:", error);
-        clearAuthState();
+        console.error("🔐 Error in onAuthStateChanged:", error);
       } finally {
         setIsLoading(false);
-        setIsInitializing(false);
       }
-    };
+    });
 
-    initializeAuth();
+    return () => unsubscribe();
   }, [clearAuthState]);
 
   const login = async (credentials: LoginCredentials): Promise<void> => {
     try {
       setIsLoading(true);
-      console.log("🔐 Attempting login...");
+      console.log("🔐 Attempting Firebase login...");
 
-      // Clear any existing auth state before login
-      clearAuthState();
+      const userCredential = await signInWithEmailAndPassword(
+        auth,
+        credentials.username,
+        credentials.password
+      );
 
-      const response = await apiService.login(credentials);
-
-      if (response.success && response.user && response.tokens) {
-        console.log("🔐 Login successful, setting user:", response.user);
-        setUser(response.user);
-        localStorage.setItem("accessToken", response.tokens.accessToken);
-        localStorage.setItem("refreshToken", response.tokens.refreshToken);
-        toast.success(response.message || "Login successful!");
-      } else {
-        throw new Error(response.message || "Login failed");
+      if (userCredential.user) {
+        console.log("🔐 Firebase Login successful");
+        await syncUserFromFirestore(userCredential.user);
+        toast.success("Login successful!");
       }
     } catch (error: any) {
       console.error("🔐 Login failed:", error);
-      const errorMessage =
-        error.response?.data?.message || error.message || "Login failed";
+      let errorMessage = "Login failed";
+      if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+        errorMessage = "Invalid email or password";
+      }
       toast.error(errorMessage);
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const signInWithGoogle = async (): Promise<void> => {
+    try {
+      setIsLoading(true);
+      console.log("🔐 Attempting Google Login...");
+      const { GoogleAuthProvider, signInWithPopup } = await import("firebase/auth");
+      const provider = new GoogleAuthProvider();
+      const userCredential = await signInWithPopup(auth, provider);
+      
+      if (userCredential.user) {
+        console.log("🔐 Google Login successful");
+        const hasRole = await syncUserFromFirestore(userCredential.user);
+        if (hasRole) {
+          toast.success("Login successful!");
+        } else {
+          toast.success("Please select your role to continue.");
+        }
+      }
+    } catch (error: any) {
+      console.error("🔐 Google Login failed:", error);
+      toast.error("Google login failed");
       throw error;
     } finally {
       setIsLoading(false);
@@ -126,16 +188,38 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const register = async (data: RegisterData): Promise<void> => {
     try {
       setIsLoading(true);
-      const response = await apiService.register(data);
+      console.log("🔐 Attempting Firebase registration...");
 
-      if (response.success) {
-        toast.success(response.message || "Registration successful!");
-      } else {
-        throw new Error(response.message || "Registration failed");
+      const userCredential = await createUserWithEmailAndPassword(
+        auth,
+        data.email || "",
+        data.password
+      );
+
+      if (userCredential.user) {
+        // Create user document in Firestore
+        const userData: User = {
+          id: userCredential.user.uid,
+          username: data.username,
+          email: data.email,
+          rollNumber: data.rollNumber || "",
+          role: data.role || 'teacher',
+          firstName: data.firstName || "",
+          lastName: data.lastName || "",
+          createdAt: new Date().toISOString()
+        };
+
+        await setDoc(doc(db, "users", userCredential.user.uid), userData);
+
+        console.log("🔐 Registration and Firestore profile creation successful");
+        toast.success("Registration successful!");
       }
     } catch (error: any) {
-      const errorMessage =
-        error.response?.data?.message || error.message || "Registration failed";
+      console.error("🔐 Registration failed:", error);
+      let errorMessage = "Registration failed";
+      if (error.code === 'auth/email-already-in-use') {
+        errorMessage = "Email already in use";
+      }
       toast.error(errorMessage);
       throw error;
     } finally {
@@ -146,29 +230,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const forgotPassword = async (data: ForgotPasswordData): Promise<void> => {
     try {
       setIsLoading(true);
-      const response = await apiService.forgotPassword(data);
-
-      if (response.success) {
-        toast.success(response.message || "Password reset instructions sent!");
-
-        // In development, show the reset token
-        if (import.meta.env.DEV && response.resetToken) {
-          console.log("Reset Token (Development Only):", response.resetToken);
-          toast.success(
-            `Reset token (dev): ${response.resetToken.substring(0, 20)}...`
-          );
-        }
-      } else {
-        throw new Error(
-          response.message || "Failed to send reset instructions"
-        );
-      }
+      await sendPasswordResetEmail(auth, data.email);
+      toast.success("Password reset instructions sent!");
     } catch (error: any) {
-      const errorMessage =
-        error.response?.data?.message ||
-        error.message ||
-        "Failed to send reset instructions";
-      toast.error(errorMessage);
+      console.error("🔐 Forgot password failed:", error);
+      toast.error(error.message || "Failed to send reset instructions");
       throw error;
     } finally {
       setIsLoading(false);
@@ -176,79 +242,53 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   const resetPassword = async (data: ResetPasswordData): Promise<void> => {
-    try {
-      setIsLoading(true);
-      const response = await apiService.resetPassword({
-        token: data.token,
-        password: data.newPassword,
-      });
-
-      if (response.success) {
-        toast.success(response.message || "Password reset successfully!");
-      } else {
-        throw new Error(response.message || "Password reset failed");
-      }
-    } catch (error: any) {
-      const errorMessage =
-        error.response?.data?.message || error.message || "Password reset failed";
-      toast.error(errorMessage);
-      throw error;
-    } finally {
-      setIsLoading(false);
-    }
+    toast.error("Manual password reset not implemented. Please use the link sent to your email.");
   };
 
   const logout = async (): Promise<void> => {
     try {
-      console.log("🔐 Logging out...");
-      // Attempt to call logout API, but don't fail if it doesn't work
-      try {
-        await apiService.logout();
-      } catch (error) {
-        console.warn(
-          "🔐 Logout API call failed, but continuing with local cleanup:",
-          error
-        );
-      }
-    } catch (error) {
-      console.error("🔐 Logout error:", error);
-    } finally {
-      // Always clear local state regardless of API call success
+      console.log("🔐 Logging out from Firebase...");
+      await signOut(auth);
       clearAuthState();
       toast.success("Logged out successfully");
+    } catch (error) {
+      console.error("🔐 Logout error:", error);
+      toast.error("Logout failed");
     }
   };
 
   const refreshToken = async (): Promise<void> => {
     try {
-      console.log("🔐 Refreshing token...");
-      const response = await apiService.refreshToken();
-
-      if (response.success && response.tokens) {
-        localStorage.setItem("accessToken", response.tokens.accessToken);
-        localStorage.setItem("refreshToken", response.tokens.refreshToken);
-        console.log("🔐 Token refreshed successfully");
-      } else {
-        throw new Error("Token refresh failed");
+      if (auth.currentUser) {
+        const idToken = await auth.currentUser.getIdToken(true);
+        localStorage.setItem("accessToken", idToken);
+        console.log("🔐 Token refreshed via Firebase");
       }
     } catch (error) {
       console.error("🔐 Token refresh failed:", error);
-      clearAuthState();
       throw error;
+    }
+  };
+
+  const refreshUser = async (): Promise<void> => {
+    if (auth.currentUser) {
+      await syncUserFromFirestore(auth.currentUser);
     }
   };
 
   const value: AuthContextType = {
     user,
     isAuthenticated,
-    isLoading: isLoading || isInitializing,
+    isLoading,
     login,
     register,
     logout,
     forgotPassword,
     resetPassword,
     refreshToken,
+    signInWithGoogle,
     clearAuthState,
+    refreshUser,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

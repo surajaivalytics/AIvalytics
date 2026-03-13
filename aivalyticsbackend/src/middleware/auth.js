@@ -1,6 +1,5 @@
-const jwtUtils = require("../utils/jwt");
+const { auth, db } = require("../config/database");
 const logger = require("../config/logger");
-const { supabaseAdmin } = require("../config/database");
 const {
   HTTP_STATUS,
   ERROR_MESSAGES,
@@ -15,14 +14,12 @@ const {
  */
 
 /**
- * Verify JWT token and authenticate user
+ * Verify Firebase ID token and authenticate user
  */
 const authenticateToken = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
-    const token = jwtUtils.extractTokenFromHeader(authHeader);
-
-    if (!token) {
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
       logger.warn(
         `Authentication failed: No token provided | IP: ${req.ip} | Route: ${req.originalUrl}`
       );
@@ -32,68 +29,60 @@ const authenticateToken = async (req, res, next) => {
       });
     }
 
-    // Verify the token
-    const decoded = jwtUtils.verifyAccessToken(token);
+    const token = authHeader.split(" ")[1];
 
-    // Fetch user details from database to ensure user still exists and is active
-    const { data: user, error } = await supabaseAdmin
-      .from(TABLES.USERS)
-      .select(
-        `
-        id,
-        username,
-        role_id,
-        course_ids,
-        deleted_at,
-        roles!inner(name)
-      `
-      )
-      .eq("id", decoded.userId)
-      .is("deleted_at", null)
-      .single();
+    // Verify the Firebase ID token
+    const decodedToken = await auth.verifyIdToken(token);
+    const uid = decodedToken.uid;
 
-    if (error || !user) {
+    // Fetch user details from Firestore
+    const userDoc = await db.collection(TABLES.USERS).doc(uid).get();
+
+    if (!userDoc.exists) {
       logger.warn(
-        `Authentication failed: User not found or inactive | User ID: ${decoded.userId} | IP: ${req.ip}`
+        `Authentication failed: User profile not found in Firestore | UID: ${uid} | IP: ${req.ip}`
       );
       return res.status(HTTP_STATUS.UNAUTHORIZED).json({
         success: false,
-        message: ERROR_MESSAGES.INVALID_TOKEN,
+        message: "Profile not found. Please complete registration.",
+        code: "PROFILE_NOT_FOUND",
       });
     }
 
-    // Check if user role matches token role (prevent role escalation)
-    if (user.roles.name !== decoded.role) {
+    const userData = userDoc.data();
+
+    // Check if user is active/not deleted
+    if (userData.deleted_at) {
       logger.warn(
-        `Authentication failed: Role mismatch | User: ${user.username} | Token Role: ${decoded.role} | DB Role: ${user.roles.name} | Route: ${req.originalUrl}`
+        `Authentication failed: Account deactivated | User: ${userData.username} | IP: ${req.ip}`
       );
       return res.status(HTTP_STATUS.UNAUTHORIZED).json({
         success: false,
-        message: ERROR_MESSAGES.INVALID_TOKEN,
-        details: "Role mismatch detected",
+        message: "Your account has been deactivated.",
       });
     }
 
     // Attach user information to request
     req.user = {
-      id: user.id,
-      username: user.username,
-      role: user.roles.name,
-      roleId: user.role_id,
-      course_ids: user.course_ids,
+      id: uid,
+      username: userData.username,
+      email: userData.email,
+      role: userData.role || ROLES.TEACHER, // Default to teacher if no role found
+      roleId: userData.role_id,
+      course_ids: userData.course_ids || [],
     };
 
     logger.logAuth(
       "TOKEN_VERIFICATION",
-      user.username,
+      userData.username,
       true,
-      `Role: ${user.roles.name} | Route: ${req.originalUrl}`
+      `Role: ${req.user.role} | Route: ${req.originalUrl}`
     );
     next();
   } catch (error) {
     logger.logAuth("TOKEN_VERIFICATION", "unknown", false, error.message);
 
-    if (error.message === "Token expired") {
+    if (error.code === "auth/id-token-expired") {
       return res.status(HTTP_STATUS.UNAUTHORIZED).json({
         success: false,
         message: "Token expired",
@@ -104,6 +93,7 @@ const authenticateToken = async (req, res, next) => {
     return res.status(HTTP_STATUS.UNAUTHORIZED).json({
       success: false,
       message: ERROR_MESSAGES.INVALID_TOKEN,
+      details: error.message,
     });
   }
 };
@@ -138,8 +128,7 @@ const authorizeRoles = (requiredRoles) => (req, res, next) => {
         "ROLE_AUTHORIZATION",
         req.user.username,
         false,
-        `Required: ${rolesArray.join(", ")} | User Role: ${userRole} | Route: ${
-          req.originalUrl
+        `Required: ${rolesArray.join(", ")} | User Role: ${userRole} | Route: ${req.originalUrl
         }`
       );
 
@@ -158,8 +147,7 @@ const authorizeRoles = (requiredRoles) => (req, res, next) => {
       "ROLE_AUTHORIZATION",
       req.user.username,
       true,
-      `Role: ${userRole} | Required: ${rolesArray.join(", ")} | Route: ${
-        req.originalUrl
+      `Role: ${userRole} | Required: ${rolesArray.join(", ")} | Route: ${req.originalUrl
       }`
     );
 
@@ -238,52 +226,40 @@ const authorizeMinimumRole = (minimumRole) => (req, res, next) => {
 const optionalAuth = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
-    const token = jwtUtils.extractTokenFromHeader(authHeader);
-
-    if (!token) {
-      // No token provided, continue without authentication
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
       req.user = null;
       return next();
     }
 
-    // Try to verify token
-    const decoded = jwtUtils.verifyAccessToken(token);
+    const token = authHeader.split(" ")[1];
 
-    // Fetch user details
-    const { data: user, error } = await supabaseAdmin
-      .from(TABLES.USERS)
-      .select(
-        `
-        id,
-        username,
-        role_id,
-        course_ids,
-        deleted_at,
-        roles!inner(name)
-      `
-      )
-      .eq("id", decoded.userId)
-      .is("deleted_at", null)
-      .single();
+    // Try to verify Firebase ID token
+    const decodedToken = await auth.verifyIdToken(token);
+    const uid = decodedToken.uid;
 
-    if (error || !user || user.roles.name !== decoded.role) {
-      // Invalid token, continue without authentication
+    // Fetch user details from Firestore
+    const userDoc = await db.collection(TABLES.USERS).doc(uid).get();
+
+    if (!userDoc.exists || userDoc.data().deleted_at) {
       req.user = null;
       return next();
     }
 
-    // Valid token, attach user
+    const userData = userDoc.data();
+
+    // Valid token and existing user, attach to request
     req.user = {
-      id: user.id,
-      username: user.username,
-      role: user.roles.name,
-      roleId: user.role_id,
-      course_ids: user.course_ids,
+      id: uid,
+      username: userData.username,
+      email: userData.email,
+      role: userData.role || ROLES.TEACHER,
+      roleId: userData.role_id,
+      course_ids: userData.course_ids || [],
     };
 
     next();
   } catch (error) {
-    // Token verification failed, continue without authentication
+    // Token verification failed or user not found, continue without authentication
     req.user = null;
     next();
   }
@@ -296,48 +272,48 @@ const optionalAuth = async (req, res, next) => {
  */
 const authorizeOwnerOrAdmin =
   (userIdParam = "userId") =>
-  (req, res, next) => {
-    try {
-      if (!req.user) {
-        return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+    (req, res, next) => {
+      try {
+        if (!req.user) {
+          return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+            success: false,
+            message: ERROR_MESSAGES.UNAUTHORIZED_ACCESS,
+          });
+        }
+
+        const targetUserId = req.params[userIdParam] || req.body[userIdParam];
+        const currentUserId = req.user.id;
+        const userRole = req.user.role;
+
+        // Allow if user is accessing their own resource
+        if (targetUserId === currentUserId) {
+          return next();
+        }
+
+        // Allow if user has admin privileges (HOD or Principal)
+        if (userRole === ROLES.HOD || userRole === ROLES.PRINCIPAL) {
+          return next();
+        }
+
+        logger.logAuth(
+          "OWNER_OR_ADMIN_CHECK",
+          req.user.username,
+          false,
+          `Target User: ${targetUserId} | Current User: ${currentUserId} | Role: ${userRole}`
+        );
+
+        return res.status(HTTP_STATUS.FORBIDDEN).json({
           success: false,
-          message: ERROR_MESSAGES.UNAUTHORIZED_ACCESS,
+          message: ERROR_MESSAGES.INSUFFICIENT_PERMISSIONS,
+        });
+      } catch (error) {
+        logger.error("Error in owner/admin authorization:", error);
+        return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+          success: false,
+          message: ERROR_MESSAGES.INTERNAL_ERROR,
         });
       }
-
-      const targetUserId = req.params[userIdParam] || req.body[userIdParam];
-      const currentUserId = req.user.id;
-      const userRole = req.user.role;
-
-      // Allow if user is accessing their own resource
-      if (targetUserId === currentUserId) {
-        return next();
-      }
-
-      // Allow if user has admin privileges (HOD or Principal)
-      if (userRole === ROLES.HOD || userRole === ROLES.PRINCIPAL) {
-        return next();
-      }
-
-      logger.logAuth(
-        "OWNER_OR_ADMIN_CHECK",
-        req.user.username,
-        false,
-        `Target User: ${targetUserId} | Current User: ${currentUserId} | Role: ${userRole}`
-      );
-
-      return res.status(HTTP_STATUS.FORBIDDEN).json({
-        success: false,
-        message: ERROR_MESSAGES.INSUFFICIENT_PERMISSIONS,
-      });
-    } catch (error) {
-      logger.error("Error in owner/admin authorization:", error);
-      return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
-        success: false,
-        message: ERROR_MESSAGES.INTERNAL_ERROR,
-      });
-    }
-  };
+    };
 
 /**
  * Rate limiting for authentication endpoints

@@ -19,23 +19,17 @@ const register = async (req, res) => {
   try {
     const result = await authService.registerUser(req.body);
 
-    // Set refresh token as HTTP-only cookie
-    res.cookie("refreshToken", result.tokens.refreshToken, COOKIE_CONFIG);
-
     res.status(HTTP_STATUS.CREATED).json({
       success: result.success,
       message: result.message,
-      user: result.user,
-      tokens: result.tokens,
+      user: result.user
     });
   } catch (error) {
     logger.logError(error, req);
 
-    const statusCode =
-      error.message === ERROR_MESSAGES.USER_ALREADY_EXISTS ||
-      error.message.includes("already exists")
-        ? HTTP_STATUS.CONFLICT
-        : HTTP_STATUS.BAD_REQUEST;
+    const statusCode = error.message.includes("already exists")
+      ? HTTP_STATUS.CONFLICT
+      : HTTP_STATUS.BAD_REQUEST;
 
     res.status(statusCode).json({
       success: false,
@@ -50,10 +44,8 @@ const register = async (req, res) => {
  */
 const login = async (req, res) => {
   try {
+    // Expecting { idToken } from frontend
     const result = await authService.loginUser(req.body);
-
-    // Set refresh token as HTTP-only cookie
-    res.cookie("refreshToken", result.tokens.refreshToken, COOKIE_CONFIG);
 
     res.status(HTTP_STATUS.OK).json({
       success: result.success,
@@ -64,14 +56,9 @@ const login = async (req, res) => {
   } catch (error) {
     logger.logError(error, req);
 
-    const statusCode =
-      error.message === ERROR_MESSAGES.INVALID_CREDENTIALS
-        ? HTTP_STATUS.UNAUTHORIZED
-        : HTTP_STATUS.BAD_REQUEST;
-
-    res.status(statusCode).json({
+    res.status(HTTP_STATUS.UNAUTHORIZED).json({
       success: false,
-      message: error.message || ERROR_MESSAGES.INTERNAL_ERROR,
+      message: error.message || ERROR_MESSAGES.INVALID_CREDENTIALS,
     });
   }
 };
@@ -258,8 +245,8 @@ const updateProfile = async (req, res) => {
         ? HTTP_STATUS.NOT_FOUND
         : error.message.includes("already exists") ||
           error.message.includes("duplicate")
-        ? HTTP_STATUS.CONFLICT
-        : HTTP_STATUS.BAD_REQUEST;
+          ? HTTP_STATUS.CONFLICT
+          : HTTP_STATUS.BAD_REQUEST;
 
     res.status(statusCode).json({
       success: false,
