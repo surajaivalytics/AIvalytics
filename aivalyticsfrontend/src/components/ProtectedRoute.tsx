@@ -30,9 +30,15 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
+  // If user is authenticated but has no role assigned (new social login)
+  if (isAuthenticated && user && !user.role && location.pathname !== "/select-role") {
+    console.log("🔐 User has no role, redirecting to select-role");
+    return <Navigate to="/select-role" replace />;
+  }
+
   // If user is authenticated but doesn't have required role
   if (isAuthenticated && allowedRoles.length > 0 && user) {
-    const hasRequiredRole = allowedRoles.includes(user.role);
+    const hasRequiredRole = user.role ? allowedRoles.includes(user.role) : false;
 
     console.log("🔐 Role check:", {
       userRole: user.role,

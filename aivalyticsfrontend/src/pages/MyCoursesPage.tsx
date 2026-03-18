@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import Layout from "../components/Layout";
+// import Layout from "../components/Layout";
 import { useAuth } from "../contexts/AuthContext";
 import { useTheme } from "../contexts/ThemeContext";
 import { getThemedClasses } from "../utils/themeUtils";
@@ -247,7 +247,7 @@ const MyCoursesPage: React.FC = () => {
   }, [courses, filterStatus, searchTerm, sortBy]);
 
   return (
-    <Layout>
+    <>
       <style>{styles}</style>
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-6 space-y-6">
         {/* Header Section */}
@@ -529,7 +529,7 @@ const MyCoursesPage: React.FC = () => {
           </div>
         )}
       </div>
-    </Layout>
+    </>
   );
 };
 

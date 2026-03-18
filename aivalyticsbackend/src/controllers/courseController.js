@@ -368,49 +368,8 @@ class CourseController {
         });
       }
 
-      // Check if user has permission to extend course duration
-      if (userRole === "teacher") {
-        // Check if teacher owns the course
-        const { data: course } = await supabaseAdmin
-          .from(TABLES.COURSES)
-          .select("created_by")
-          .eq("id", id)
-          .is("deleted_at", null)
-          .single();
-
-        if (!course || course.created_by !== req.user.id) {
-          return res.status(HTTP_STATUS.FORBIDDEN).json({
-            success: false,
-            message: "You can only extend courses you created",
-          });
-        }
-      }
-
-      // Call the database function to extend duration
-      const { data, error } = await supabaseAdmin.rpc(
-        "extend_course_duration",
-        {
-          course_id_param: id,
-          additional_months,
-        },
-      );
-
-      if (error) {
-        logger.error(`Extend course duration failed: ${error.message}`);
-        throw new Error("Failed to extend course duration");
-      }
-
-      if (!data) {
-        return res.status(HTTP_STATUS.NOT_FOUND).json({
-          success: false,
-          message: "Course not found",
-        });
-      }
-
-      res.status(HTTP_STATUS.OK).json({
-        success: true,
-        message: `Course duration extended by ${additional_months} months`,
-      });
+      const result = await courseService.extendCourseDuration(id, additional_months);
+      res.status(HTTP_STATUS.OK).json(result);
     } catch (error) {
       logger.error(`Extend course duration error: ${error.message}`);
       res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({

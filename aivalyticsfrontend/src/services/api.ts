@@ -1,6 +1,6 @@
 import axios, { AxiosInstance, AxiosResponse, AxiosError } from 'axios';
 
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000/api';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
 
 // Export API_BASE_URL for other services
 export { API_BASE_URL };
@@ -95,32 +95,13 @@ class ApiService {
       }
     );
 
-    // Response interceptor to handle token refresh
+    // Response interceptor to handle unauthorized access
     this.api.interceptors.response.use(
       (response) => response,
       async (error: AxiosError) => {
-        const originalRequest = error.config as any;
-
-        if (error.response?.status === 401 && !originalRequest._retry) {
-          originalRequest._retry = true;
-
-          try {
-            console.log("🔐 401 error detected, attempting token refresh...");
-            await this.refreshToken();
-            const token = this.getValidToken();
-            if (token) {
-              originalRequest.headers.Authorization = `Bearer ${token}`;
-              return this.api(originalRequest);
-            }
-          } catch (refreshError) {
-            console.error("🔐 Token refresh failed:", refreshError);
-            // Clear all tokens and redirect to login
-            this.clearAllTokens();
-            window.location.href = '/login';
-            return Promise.reject(refreshError);
-          }
-        }
-
+        // We handle 401s in the components or let it bubble up.
+        // The previous logic attempted a manual refresh to a non-existent endpoint
+        // and forced a window.location.href change, causing a redirect loop.
         return Promise.reject(error);
       }
     );

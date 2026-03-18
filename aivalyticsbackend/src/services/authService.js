@@ -3,12 +3,12 @@ const { db } = require("../config/database");
 const jwtUtils = require("../utils/jwt");
 const passwordUtils = require("../utils/password");
 const logger = require("../config/logger");
+const { formatFirestoreTimestamp } = require("../utils/firebaseUtils");
 const {
   HTTP_STATUS,
   ERROR_MESSAGES,
   SUCCESS_MESSAGES,
   TABLES,
-  ROLES,
 } = require("../config/constants");
 
 /**
@@ -206,15 +206,15 @@ class AuthService {
         tokens,
       };
     } catch (error) {
-      logger.error(`Login error: ${error.message}`);
-      throw error;
+      logger.error(`Token verification failed: ${error.message}`);
+      throw new Error(ERROR_MESSAGES.INVALID_TOKEN);
     }
   }
 
   /**
    * Refresh access token
    */
-  async refreshToken(refreshToken) {
+  async syncUserProfile(userData) {
     try {
       const decoded = jwtUtils.verifyRefreshToken(refreshToken);
 
@@ -261,7 +261,7 @@ class AuthService {
         tokens,
       };
     } catch (error) {
-      logger.error(`Token refresh error: ${error.message}`);
+      logger.error(`Error syncing user profile: ${error.message}`);
       throw error;
     }
   }
@@ -269,7 +269,7 @@ class AuthService {
   /**
    * Request password reset
    */
-  async requestPasswordReset(email) {
+  async registerUser(userData) {
     try {
       const snap = await db
         .collection(TABLES.USERS)
@@ -303,13 +303,21 @@ class AuthService {
       logger.info(
         `Password reset token for ${user.username} (${user.email}): ${resetToken}`
       );
+      const { email, password, username, rollNumber, role } = userData;
 
-      logger.logAuth(
-        "PASSWORD_RESET_REQUEST",
-        user.username,
-        true,
-        `Reset token generated for email: ${user.email}`
-      );
+      const userRecord = await auth.createUser({
+        email,
+        password,
+        displayName: username,
+      });
+
+      const profileResult = await this.syncUserProfile({
+        uid: userRecord.uid,
+        email,
+        username,
+        rollNumber,
+        role
+      });
 
       return {
         success: true,
@@ -317,9 +325,11 @@ class AuthService {
           "If an account with that email exists, password reset instructions have been sent.",
         resetToken,
         email: user.email,
+        message: SUCCESS_MESSAGES.REGISTRATION_SUCCESS,
+        user: profileResult.user
       };
     } catch (error) {
-      logger.error(`Password reset request error: ${error.message}`);
+      logger.error(`Registration error: ${error.message}`);
       throw error;
     }
   }
@@ -399,13 +409,26 @@ class AuthService {
         });
 
       logger.logAuth("PASSWORD_CHANGE", user.username, true, "Password changed successfully");
+   * Login user (verifying token from frontend)
+   */
+  async loginUser(credentials) {
+    // In Firebase flow, the frontend performs login and sends the ID token to the backend
+    // If this method is called, it might be for a custom login flow or verification
+    const { idToken } = credentials;
+    if (!idToken) throw new Error("ID Token is required");
+
+    try {
+      const decodedToken = await this.verifyIdToken(idToken);
+      const profile = await this.getUserProfile(decodedToken.uid);
 
       return {
         success: true,
-        message: SUCCESS_MESSAGES.PASSWORD_CHANGED,
+        message: SUCCESS_MESSAGES.LOGIN_SUCCESS,
+        user: profile.user,
+        tokens: { accessToken: idToken } // Firebase manages refresh tokens on client
       };
     } catch (error) {
-      logger.error(`Password change error: ${error.message}`);
+      logger.error(`Login error: ${error.message}`);
       throw error;
     }
   }
@@ -436,6 +459,15 @@ class AuthService {
           createdAt: user.created_at,
           updatedAt: user.updated_at,
         },
+      const userData = userDoc.data();
+      return {
+        success: true,
+        user: {
+          id: userId,
+          ...userData,
+          createdAt: formatFirestoreTimestamp(userData.createdAt),
+          updatedAt: formatFirestoreTimestamp(userData.updatedAt)
+        }
       };
     } catch (error) {
       logger.error(`Get user profile error: ${error.message}`);
@@ -497,6 +529,14 @@ class AuthService {
       const updatedUser = updatedDoc.data();
 
       logger.logAuth("PROFILE_UPDATE", updatedUser.username, true, "Profile updated successfully");
+      const userRef = db.collection(TABLES.USERS).doc(userId);
+      const updateFields = {
+        ...updateData,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      };
+
+      await userRef.update(updateFields);
+      const updatedProfile = await this.getUserProfile(userId);
 
       return {
         success: true,
@@ -512,6 +552,7 @@ class AuthService {
           createdAt: updatedUser.created_at,
           updatedAt: updatedUser.updated_at,
         },
+        user: updatedProfile.user
       };
     } catch (error) {
       logger.error(`Update user profile error: ${error.message}`);
@@ -529,9 +570,13 @@ class AuthService {
 
       logger.logAuth("USER_LOGOUT", username, true, "User logged out");
 
+      // Firebase handles logout on the client side
+      // Server-side we can revoke tokens if needed
+      await auth.revokeRefreshTokens(userId);
+      logger.info(`Tokens revoked for user: ${userId}`);
       return {
         success: true,
-        message: SUCCESS_MESSAGES.LOGOUT_SUCCESS,
+        message: SUCCESS_MESSAGES.LOGOUT_SUCCESS
       };
     } catch (error) {
       logger.error(`Logout error: ${error.message}`);
@@ -540,7 +585,5 @@ class AuthService {
   }
 }
 
-// Create singleton instance
 const authService = new AuthService();
-
 module.exports = authService;
