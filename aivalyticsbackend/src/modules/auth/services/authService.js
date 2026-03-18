@@ -1,5 +1,5 @@
 const crypto = require("crypto");
-const { supabaseAdmin } = require("../config/database");
+const { db } = require("../config/database");
 const jwtUtils = require("../utils/jwt");
 const passwordUtils = require("../utils/password");
 const logger = require("../config/logger");

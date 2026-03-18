@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const OpenAI = require("openai");
 const pdf = require("pdf-parse");
-const { supabase } = require("../config/database");
+const { db } = require("../config/database");
 
 /**
  * MCQ Controller

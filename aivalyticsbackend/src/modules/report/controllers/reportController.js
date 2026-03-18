@@ -1,5 +1,5 @@
 const OpenAI = require("openai");
-const { supabase } = require("../config/database");
+const { db } = require("../config/database");
 
 /**
  * Report Controller

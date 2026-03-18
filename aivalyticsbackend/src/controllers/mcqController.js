@@ -4,7 +4,9 @@ const path = require("path");
 const OpenAI = require("openai");
 const pdf = require("pdf-parse");
 const mammoth = require("mammoth");
-const { supabase, adminSupabase } = require("../config/database");
+const { db } = require("../config/database");
+const admin = require("firebase-admin");
+const FieldValue = admin.firestore.FieldValue;
 
 /**
  * MCQ Controller
@@ -435,13 +437,10 @@ const generateMCQ = async (req, res) => {
     }
 
     // Verify the course exists and user has access
-    const { data: course, error: courseError } = await supabase
-      .from("course")
-      .select("*, quiz_ids")
-      .eq("id", course_id)
-      .single();
+    const courseDoc = await db.collection("course").doc(course_id).get();
+    const course = courseDoc.exists ? { id: courseDoc.id, ...courseDoc.data() } : null;
 
-    if (courseError || !course) {
+    if (!course) {
       return res.status(404).json({
         success: false,
         message: "Course not found",
@@ -530,47 +529,32 @@ const generateMCQ = async (req, res) => {
       });
     }
 
-    // Save quiz to database
-    const { data: quiz, error: quizError } = await supabase
-      .from("quiz")
-      .insert({
-        name: quiz_name,
-        course_id,
-        created_by: userId,
-        updated_by: userId,
-        question_json: generatedQuestions,
-        max_score,
-        status: "draft", // Set initial status as draft
-      })
-      .select()
-      .single();
+    // Save quiz to Firestore
+    const quizRef = db.collection("quiz").doc();
+    const quizData = {
+      id: quizRef.id,
+      name: quiz_name,
+      course_id,
+      created_by: userId,
+      updated_by: userId,
+      question_json: generatedQuestions,
+      max_score,
+      status: "draft",
+      deleted_at: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    await quizRef.set(quizData);
+    const quiz = quizData;
 
-    if (quizError) {
-      throw new Error(`Failed to save quiz: ${quizError.message}`);
-    }
-
-    console.log("💾 Quiz saved to database successfully!");
+    console.log("💾 Quiz saved to Firestore successfully!");
     console.log(`🆔 Quiz ID: ${quiz.id}`);
-    console.log(`📚 Course ID: ${course_id}`);
-    console.log(`👨‍🏫 Created by: ${userId}`);
-    console.log(
-      `📊 Total questions stored: ${quiz.question_json?.length || 0}`
-    );
 
-    // Update course's quiz_ids array (now that we know it exists in the schema)
-    const { error: courseUpdateError } = await supabase
-      .from("course")
-      .update({
-        quiz_ids: [...(course.quiz_ids || []), quiz.id],
-      })
-      .eq("id", course_id);
-
-    if (courseUpdateError) {
-      console.error("Failed to update course quiz_ids:", courseUpdateError);
-      // Don't fail the request, just log the error
-    } else {
-      console.log("🔗 Course quiz_ids updated successfully");
-    }
+    // Update course's quiz_ids array
+    await db.collection("course").doc(course_id).update({
+      quiz_ids: FieldValue.arrayUnion(quiz.id),
+    });
+    console.log("🔗 Course quiz_ids updated successfully");
 
     res.json({
       success: true,
@@ -620,55 +604,25 @@ const getTeacherQuizzes = async (req, res) => {
     const { page = 1, limit = 10, course_id } = req.query;
     const offset = (page - 1) * limit;
 
-    let query = supabase
-      .from("quiz")
-      .select(
-        `
-        *,
-        course:course_id (
-          id,
-          name
-        )
-      `
-      )
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false })
-      .range(offset, offset + limit - 1);
+    // Build Firestore query
+    let quizQuery = db.collection("quiz").where("deleted_at", "==", null);
+    if (userRole === "teacher") quizQuery = quizQuery.where("created_by", "==", userId);
+    if (course_id) quizQuery = quizQuery.where("course_id", "==", course_id);
 
-    // Filter by teacher for teacher role
-    if (userRole === "teacher") {
-      query = query.eq("created_by", userId);
+    const snap = await quizQuery.orderBy("created_at", "desc").get();
+    let allQuizzes = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+    // Enrich with course name
+    const courseIds = [...new Set(allQuizzes.map((q) => q.course_id).filter(Boolean))];
+    const courseMap = {};
+    for (const cid of courseIds) {
+      const cd = await db.collection("course").doc(cid).get();
+      if (cd.exists) courseMap[cid] = { id: cd.id, name: cd.data().name };
     }
+    allQuizzes = allQuizzes.map((q) => ({ ...q, course: courseMap[q.course_id] || null }));
 
-    // Filter by course if specified
-    if (course_id) {
-      query = query.eq("course_id", course_id);
-    }
-
-    const { data: quizzes, error } = await query;
-
-    if (error) {
-      return res.status(500).json({
-        success: false,
-        message: `Failed to fetch quizzes: ${error.message}`,
-      });
-    }
-
-    // Get total count for pagination
-    let countQuery = supabase
-      .from("quiz")
-      .select("*", { count: "exact", head: true })
-      .is("deleted_at", null);
-
-    if (userRole === "teacher") {
-      countQuery = countQuery.eq("created_by", userId);
-    }
-
-    if (course_id) {
-      countQuery = countQuery.eq("course_id", course_id);
-    }
-
-    const { count } = await countQuery;
+    const count = allQuizzes.length;
+    const quizzes = allQuizzes.slice(offset, offset + parseInt(limit));
 
     res.json({
       success: true,
@@ -711,13 +665,10 @@ const deleteQuiz = async (req, res) => {
     }
 
     // Get quiz details
-    const { data: quiz, error: quizError } = await supabase
-      .from("quiz")
-      .select("*, course:course_id(quiz_ids)")
-      .eq("id", quiz_id)
-      .single();
+    const quizDoc = await db.collection("quiz").doc(quiz_id).get();
+    const quiz = quizDoc.exists ? { id: quizDoc.id, ...quizDoc.data() } : null;
 
-    if (quizError || !quiz) {
+    if (!quiz) {
       return res.status(404).json({
         success: false,
         message: "Quiz not found",
@@ -732,28 +683,14 @@ const deleteQuiz = async (req, res) => {
       });
     }
 
-    // Delete quiz
-    const { error: deleteError } = await supabase
-      .from("quiz")
-      .delete()
-      .eq("id", quiz_id);
+    // Delete quiz from Firestore
+    await db.collection("quiz").doc(quiz_id).delete();
 
-    if (deleteError) {
-      return res.status(500).json({
-        success: false,
-        message: `Failed to delete quiz: ${deleteError.message}`,
+    // Remove quiz from course's quiz_ids array
+    if (quiz.course_id) {
+      await db.collection("course").doc(quiz.course_id).update({
+        quiz_ids: FieldValue.arrayRemove(quiz_id),
       });
-    }
-
-    // Update course's quiz_ids array (now that we know it exists in the schema)
-    if (quiz.course && quiz.course.quiz_ids) {
-      const updatedQuizIds = quiz.course.quiz_ids.filter(
-        (id) => id !== quiz_id
-      );
-      await supabase
-        .from("course")
-        .update({ quiz_ids: updatedQuizIds })
-        .eq("id", quiz.course_id);
     }
 
     res.json({
@@ -780,18 +717,9 @@ const getCourseQuizzes = async (req, res) => {
 
     // Check if user is enrolled in the course (for students)
     if (userRole === "student") {
-      const { data: user, error: userError } = await supabase
-        .from("user")
-        .select("course_ids")
-        .eq("id", userId)
-        .single();
-
-      if (
-        userError ||
-        !user ||
-        !user.course_ids ||
-        !user.course_ids.includes(course_id)
-      ) {
+      const userDoc = await db.collection("user").doc(userId).get();
+      const userData = userDoc.exists ? userDoc.data() : null;
+      if (!userData || !(userData.course_ids || []).includes(course_id)) {
         return res.status(403).json({
           success: false,
           message: "You are not enrolled in this course",
@@ -799,66 +727,30 @@ const getCourseQuizzes = async (req, res) => {
       }
     }
 
-    // Get quizzes for the course
-    let query = supabase
-      .from("quiz")
-      .select(
-        `
-        id,
-        name,
-        max_score,
-        created_at,
-        question_json,
-        status,
-        course:course_id (
-          id,
-          name
-        )
-      `
-      )
-      .eq("course_id", course_id)
-      .is("deleted_at", null);
+    // Get quizzes for the course from Firestore
+    let quizQuery = db.collection("quiz")
+      .where("course_id", "==", course_id)
+      .where("deleted_at", "==", null);
+    if (userRole === "student") quizQuery = quizQuery.where("status", "==", "active");
 
-    // For students, only show active quizzes
-    if (userRole === "student") {
-      query = query.eq("status", "active");
-    }
+    const quizSnap = await quizQuery.orderBy("created_at", "desc").get();
+    let quizzes = quizSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
-    const { data: quizzes, error } = await query.order("created_at", {
-      ascending: false,
-    });
+    // Get course info
+    const courseDoc = await db.collection("course").doc(course_id).get();
+    const courseInfo = courseDoc.exists ? { id: courseDoc.id, name: courseDoc.data().name } : null;
+    quizzes = quizzes.map((q) => ({ ...q, course: courseInfo }));
 
-    if (error) {
-      return res.status(500).json({
-        success: false,
-        message: `Failed to fetch quizzes: ${error.message}`,
-      });
-    }
-
-    // For students, filter out quizzes they have already taken
+    // For students, filter out already-taken quizzes
     let availableQuizzes = quizzes;
     if (userRole === "student") {
-      // Get list of quizzes the student has already taken
-      const { data: takenQuizzes, error: scoresError } = await supabase
-        .from("score")
-        .select("quiz_id")
-        .eq("user_id", userId)
-        .is("deleted_at", null);
-
-      if (scoresError) {
-        console.error("Error fetching student scores:", scoresError);
-        // Don't fail the request, just log the error
-      } else {
-        const takenQuizIds = takenQuizzes.map((score) => score.quiz_id);
-        availableQuizzes = quizzes.filter(
-          (quiz) => !takenQuizIds.includes(quiz.id)
-        );
-
-        console.log(`📊 Quiz filtering for student ${userId}:`);
-        console.log(`📝 Total quizzes in course: ${quizzes.length}`);
-        console.log(`✅ Already taken: ${takenQuizIds.length}`);
-        console.log(`🎯 Available to take: ${availableQuizzes.length}`);
-      }
+      const scoresSnap = await db.collection("score")
+        .where("user_id", "==", userId)
+        .where("deleted_at", "==", null)
+        .get();
+      const takenQuizIds = scoresSnap.docs.map((d) => d.data().quiz_id);
+      availableQuizzes = quizzes.filter((q) => !takenQuizIds.includes(q.id));
+      console.log(`📊 Quiz filtering: total=${quizzes.length}, taken=${takenQuizIds.length}, available=${availableQuizzes.length}`);
     }
 
     res.json({
@@ -888,81 +780,38 @@ const getQuizForTaking = async (req, res) => {
     const userId = req.user.id;
     const userRole = req.user.role;
 
-    // Get quiz details
-    const { data: quiz, error: quizError } = await supabase
-      .from("quiz")
-      .select(
-        `
-        *,
-        course:course_id (
-          id,
-          name
-        )
-      `
-      )
-      .eq("id", quiz_id)
-      .is("deleted_at", null)
-      .single();
+    // Get quiz from Firestore
+    const quizDoc = await db.collection("quiz").doc(quiz_id).get();
+    const quiz = quizDoc.exists && !quizDoc.data().deleted_at
+      ? { id: quizDoc.id, ...quizDoc.data() } : null;
 
-    if (quizError || !quiz) {
-      return res.status(404).json({
-        success: false,
-        message: "Quiz not found",
-      });
+    if (!quiz) {
+      return res.status(404).json({ success: false, message: "Quiz not found" });
     }
 
-    // For students, check if quiz is active
-    if (userRole === "student" && quiz.status !== "active") {
-      return res.status(403).json({
-        success: false,
-        message: "This quiz is not available for taking",
-      });
+    // Attach course info
+    if (quiz.course_id) {
+      const cd = await db.collection("course").doc(quiz.course_id).get();
+      quiz.course = cd.exists ? { id: cd.id, name: cd.data().name } : null;
     }
 
-    // Check if student is enrolled in the course
+    // For students, check quiz is active + enrolled + not already taken
     if (userRole === "student") {
-      const { data: user, error: userError } = await supabase
-        .from("user")
-        .select("course_ids")
-        .eq("id", userId)
-        .single();
-
-      if (
-        userError ||
-        !user ||
-        !user.course_ids ||
-        !user.course_ids.includes(quiz.course_id)
-      ) {
-        return res.status(403).json({
-          success: false,
-          message: "You are not enrolled in this course",
-        });
+      if (quiz.status !== "active") {
+        return res.status(403).json({ success: false, message: "This quiz is not available for taking" });
       }
-
-      // Check if student has already taken this quiz
-      const { data: existingScore, error: scoreError } = await supabase
-        .from("score")
-        .select("id")
-        .eq("user_id", userId)
-        .eq("quiz_id", quiz_id)
-        .is("deleted_at", null)
-        .single();
-
-      if (scoreError && scoreError.code !== "PGRST116") {
-        // PGRST116 = no rows found
-        console.error("Error checking existing score:", scoreError);
-        return res.status(500).json({
-          success: false,
-          message: "Error checking quiz status",
-        });
+      const userDoc = await db.collection("user").doc(userId).get();
+      const userData = userDoc.exists ? userDoc.data() : null;
+      if (!userData || !(userData.course_ids || []).includes(quiz.course_id)) {
+        return res.status(403).json({ success: false, message: "You are not enrolled in this course" });
       }
-
-      if (existingScore) {
-        console.log(`🚫 Student ${userId} attempted to retake quiz ${quiz_id}`);
-        return res.status(403).json({
-          success: false,
-          message: "You have already taken this quiz",
-        });
+      const scoresSnap = await db.collection("score")
+        .where("user_id", "==", userId)
+        .where("quiz_id", "==", quiz_id)
+        .where("deleted_at", "==", null)
+        .limit(1).get();
+      if (!scoresSnap.empty) {
+        return res.status(403).json({ success: false, message: "You have already taken this quiz" });
       }
     }
 
@@ -1046,64 +895,29 @@ const submitQuizAnswers = async (req, res) => {
       });
     }
 
-    // Get quiz details with correct answers
-    const { data: quiz, error: quizError } = await supabase
-      .from("quiz")
-      .select("*")
-      .eq("id", quiz_id)
-      .is("deleted_at", null)
-      .single();
-
-    if (quizError || !quiz) {
-      return res.status(404).json({
-        success: false,
-        message: "Quiz not found",
-      });
+    // Get quiz from Firestore
+    const quizDoc = await db.collection("quiz").doc(quiz_id).get();
+    const quiz = quizDoc.exists && !quizDoc.data().deleted_at
+      ? { id: quizDoc.id, ...quizDoc.data() } : null;
+    if (!quiz) {
+      return res.status(404).json({ success: false, message: "Quiz not found" });
     }
 
-    // Check if student is enrolled in the course
-    const { data: user, error: userError } = await supabase
-      .from("user")
-      .select("course_ids")
-      .eq("id", userId)
-      .single();
-
-    if (
-      userError ||
-      !user ||
-      !user.course_ids ||
-      !user.course_ids.includes(quiz.course_id)
-    ) {
-      return res.status(403).json({
-        success: false,
-        message: "You are not enrolled in this course",
-      });
+    // Check enrollment
+    const userDoc = await db.collection("user").doc(userId).get();
+    const userData = userDoc.exists ? userDoc.data() : null;
+    if (!userData || !(userData.course_ids || []).includes(quiz.course_id)) {
+      return res.status(403).json({ success: false, message: "You are not enrolled in this course" });
     }
 
-    // Check if student has already submitted this quiz
-    const { data: existingScore, error: scoreError } = await supabase
-      .from("score")
-      .select("id")
-      .eq("user_id", userId)
-      .eq("quiz_id", quiz_id)
-      .is("deleted_at", null)
-      .single();
-
-    if (scoreError && scoreError.code !== "PGRST116") {
-      // PGRST116 = no rows found
-      console.error("Error checking existing score:", scoreError);
-      return res.status(500).json({
-        success: false,
-        message: "Error checking quiz status",
-      });
-    }
-
-    if (existingScore) {
-      console.log(`🚫 Student ${userId} attempted to resubmit quiz ${quiz_id}`);
-      return res.status(403).json({
-        success: false,
-        message: "You have already submitted this quiz",
-      });
+    // Check if already submitted
+    const existingSnap = await db.collection("score")
+      .where("user_id", "==", userId)
+      .where("quiz_id", "==", quiz_id)
+      .where("deleted_at", "==", null)
+      .limit(1).get();
+    if (!existingSnap.empty) {
+      return res.status(403).json({ success: false, message: "You have already submitted this quiz" });
     }
 
     // Calculate score
@@ -1139,39 +953,36 @@ const submitQuizAnswers = async (req, res) => {
     console.log(`📈 Score percentage: ${scorePercentage}%`);
     console.log(`🎯 Final score: ${finalScore}/${quiz.max_score}`);
 
-    // Save quiz attempt to score table
+    // Save quiz attempt to Firestore score collection
     try {
-      const { data: scoreRecord, error: scoreError } = await supabase
-        .from("score")
-        .insert({
-          user_id: userId,
-          quiz_id,
-          marks: finalScore,
-          response: {
-            answers: results,
-            total_questions: totalQuestions,
-            correct_answers: correctAnswers,
-            score_percentage: Math.round(scorePercentage),
-            submitted_at: new Date().toISOString(),
-          },
-          question_name: quiz.name,
-          created_by: userId,
-          updated_by: userId,
-        })
-        .select()
-        .single();
+      const scoreRef = db.collection("score").doc();
+      await scoreRef.set({
+        id: scoreRef.id,
+        user_id: userId,
+        quiz_id,
+        marks: finalScore,
+        response: {
+          answers: results,
+          total_questions: totalQuestions,
+          correct_answers: correctAnswers,
+          score_percentage: Math.round(scorePercentage),
+          submitted_at: new Date().toISOString(),
+        },
+        question_name: quiz.name,
+        created_by: userId,
+        updated_by: userId,
+        deleted_at: null,
+        created_at: new Date().toISOString(),
+      });
+      console.log("💾 Score saved to Firestore:", scoreRef.id);
 
-      if (scoreError) {
-        console.error("❌ Failed to save score to database:", scoreError);
-        // Don't fail the request, just log the error
-      } else {
-        console.log("💾 Score saved to database successfully!");
-        console.log(`🆔 Score record ID: ${scoreRecord.id}`);
-        console.log(`📊 Triggers will automatically update leaderboard stats`);
-      }
-    } catch (error) {
-      console.error("❌ Error saving score:", error);
-      // Don't fail the request, just log the error
+      // Update student's leaderboard stats
+      await db.collection("user").doc(userId).update({
+        total_score: FieldValue.increment(finalScore),
+        total_quizzes_taken: FieldValue.increment(1),
+      });
+    } catch (err) {
+      console.error("❌ Error saving score:", err);
     }
 
     res.json({

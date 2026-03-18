@@ -1,62 +1,55 @@
-const { supabaseAdmin } = require("../config/database");
+const { db } = require("../config/database");
+const crypto = require("crypto");
 const logger = require("../config/logger");
-const {
-  HTTP_STATUS,
-  ERROR_MESSAGES,
-  SUCCESS_MESSAGES,
-  TABLES,
-} = require("../config/constants");
+const { TABLES } = require("../config/constants");
 
 /**
- * Class Service
- * CRUD operations for class management
+ * Class Service - Firebase Firestore
  */
 class ClassService {
   /**
    * Get all classes
-   * @param {Object} options - Query options (pagination, search)
-   * @returns {Object} List of classes
    */
   async getAllClasses(options = {}) {
     try {
       const { page = 1, limit = 10, search = "" } = options;
-      const offset = (page - 1) * limit;
 
-      let query = supabaseAdmin
-        .from(TABLES.CLASSES)
-        .select(
-          `
-          *,
-          department:department_id(id, name)
-        `,
-          { count: "exact" },
-        )
-        .order("created_at", { ascending: false });
+      const snap = await db
+        .collection(TABLES.CLASSES)
+        .orderBy("created_at", "desc")
+        .get();
 
-      // Add search filter if provided
+      let classes = await Promise.all(
+        snap.docs.map(async (doc) => {
+          const data = doc.data();
+          // Fetch department name
+          let department = null;
+          if (data.department_id) {
+            const deptDoc = await db
+              .collection(TABLES.DEPARTMENTS)
+              .doc(data.department_id)
+              .get();
+            if (deptDoc.exists) {
+              department = { id: deptDoc.id, name: deptDoc.data().name };
+            }
+          }
+          return { id: doc.id, ...data, department };
+        })
+      );
+
       if (search) {
-        query = query.ilike("name", `%${search}%`);
+        const s = search.toLowerCase();
+        classes = classes.filter((c) => c.name?.toLowerCase().includes(s));
       }
 
-      // Add pagination
-      query = query.range(offset, offset + limit - 1);
-
-      const { data: classes, error, count } = await query;
-
-      if (error) {
-        logger.error(`Get classes failed: ${error.message}`);
-        throw new Error("Failed to fetch classes");
-      }
+      const total = classes.length;
+      const offset = (page - 1) * limit;
+      const paginated = classes.slice(offset, offset + limit);
 
       return {
         success: true,
-        classes,
-        pagination: {
-          page,
-          limit,
-          total: count,
-          totalPages: Math.ceil(count / limit),
-        },
+        classes: paginated,
+        pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
       };
     } catch (error) {
       logger.error(`Get classes error: ${error.message}`);
@@ -65,32 +58,41 @@ class ClassService {
   }
 
   /**
-   * Get class by ID with details
-   * @param {string} classId - Class ID
-   * @returns {Object} Class details
+   * Get class by ID with students
    */
   async getClassById(classId) {
     try {
-      const { data: classData, error } = await supabaseAdmin
-        .from(TABLES.CLASSES)
-        .select(
-          `
-          *,
-          department:department_id(id, name),
-          students:user!class_id(id, username, roll_number)
-        `,
-        )
-        .eq("id", classId)
-        .single();
+      const classDoc = await db.collection(TABLES.CLASSES).doc(classId).get();
+      if (!classDoc.exists) throw new Error("Class not found");
 
-      if (error || !classData) {
-        logger.warn(`Class not found: ${classId}`);
-        throw new Error("Class not found");
+      const classData = classDoc.data();
+
+      // Get department
+      let department = null;
+      if (classData.department_id) {
+        const deptDoc = await db
+          .collection(TABLES.DEPARTMENTS)
+          .doc(classData.department_id)
+          .get();
+        if (deptDoc.exists) {
+          department = { id: deptDoc.id, name: deptDoc.data().name };
+        }
       }
+
+      // Get students in class
+      const studentsSnap = await db
+        .collection(TABLES.USERS)
+        .where("class_id", "==", classId)
+        .get();
+      const students = studentsSnap.docs.map((d) => ({
+        id: d.id,
+        username: d.data().username,
+        roll_number: d.data().roll_number,
+      }));
 
       return {
         success: true,
-        class: classData,
+        class: { id: classDoc.id, ...classData, department, students },
       };
     } catch (error) {
       logger.error(`Get class by ID error: ${error.message}`);
@@ -100,66 +102,47 @@ class ClassService {
 
   /**
    * Create new class
-   * @param {Object} classData - Class data
-   * @param {string} createdBy - User ID who created the class
-   * @returns {Object} Created class
    */
   async createClass(classData, createdBy) {
     try {
       const { name, department_id } = classData;
 
-      // Check if class name already exists
-      const { data: existingName } = await supabaseAdmin
-        .from(TABLES.CLASSES)
-        .select("id")
-        .eq("name", name)
-        .single();
-
-      if (existingName) {
-        throw new Error("Class name already exists");
-      }
+      // Check name uniqueness
+      const existingSnap = await db
+        .collection(TABLES.CLASSES)
+        .where("name", "==", name)
+        .limit(1)
+        .get();
+      if (!existingSnap.empty) throw new Error("Class name already exists");
 
       // Verify department exists
-      const { data: department, error: deptError } = await supabaseAdmin
-        .from(TABLES.DEPARTMENTS)
-        .select("id, name")
-        .eq("id", department_id)
-        .single();
+      const deptDoc = await db
+        .collection(TABLES.DEPARTMENTS)
+        .doc(department_id)
+        .get();
+      if (!deptDoc.exists) throw new Error("Department not found");
 
-      if (deptError || !department) {
-        throw new Error("Department not found");
-      }
+      const classId = crypto.randomUUID();
+      const now = new Date().toISOString();
 
-      // Create class
-      const { data: newClass, error: createError } = await supabaseAdmin
-        .from(TABLES.CLASSES)
-        .insert({
-          name: name.trim(),
-          department_id,
-          num_students: 0,
-          class_teacher_id: null,
-        })
-        .select(
-          `
-          *,
-          department:department_id(id, name)
-        `,
-        )
-        .single();
+      const newClass = {
+        id: classId,
+        name: name.trim(),
+        department_id,
+        num_students: 0,
+        class_teacher_id: null,
+        created_at: now,
+        updated_at: now,
+      };
 
-      if (createError) {
-        logger.error(`Create class failed: ${createError.message}`);
-        throw new Error("Failed to create class");
-      }
+      await db.collection(TABLES.CLASSES).doc(classId).set(newClass);
 
-      logger.info(
-        `Class created: ${newClass.name} in ${department.name} by user ${createdBy}`,
-      );
+      logger.info(`Class created: ${name} by user ${createdBy}`);
 
       return {
         success: true,
         message: "Class created successfully",
-        class: newClass,
+        class: { ...newClass, department: { id: deptDoc.id, name: deptDoc.data().name } },
       };
     } catch (error) {
       logger.error(`Create class error: ${error.message}`);
@@ -169,85 +152,47 @@ class ClassService {
 
   /**
    * Update class
-   * @param {string} classId - Class ID
-   * @param {Object} updateData - Update data
-   * @param {string} updatedBy - User ID who updated the class
-   * @returns {Object} Updated class
    */
   async updateClass(classId, updateData, updatedBy) {
     try {
       const { name, department_id } = updateData;
 
-      // Check if class exists
-      const { data: existingClass, error: fetchError } = await supabaseAdmin
-        .from(TABLES.CLASSES)
-        .select("*")
-        .eq("id", classId)
-        .single();
+      const classDoc = await db.collection(TABLES.CLASSES).doc(classId).get();
+      if (!classDoc.exists) throw new Error("Class not found");
 
-      if (fetchError || !existingClass) {
-        throw new Error("Class not found");
+      const existing = classDoc.data();
+
+      if (name && name !== existing.name) {
+        const nameSnap = await db
+          .collection(TABLES.CLASSES)
+          .where("name", "==", name)
+          .limit(1)
+          .get();
+        const conflict = nameSnap.docs.find((d) => d.id !== classId);
+        if (conflict) throw new Error("Class name already exists");
       }
 
-      // Check if new name already exists (excluding current class)
-      if (name && name !== existingClass.name) {
-        const { data: nameExists } = await supabaseAdmin
-          .from(TABLES.CLASSES)
-          .select("id")
-          .eq("name", name)
-          .neq("id", classId)
-          .single();
-
-        if (nameExists) {
-          throw new Error("Class name already exists");
-        }
+      if (department_id && department_id !== existing.department_id) {
+        const deptDoc = await db
+          .collection(TABLES.DEPARTMENTS)
+          .doc(department_id)
+          .get();
+        if (!deptDoc.exists) throw new Error("Department not found");
       }
 
-      // Verify department exists if being updated
-      if (department_id && department_id !== existingClass.department_id) {
-        const { data: department, error: deptError } = await supabaseAdmin
-          .from(TABLES.DEPARTMENTS)
-          .select("id")
-          .eq("id", department_id)
-          .single();
-
-        if (deptError || !department) {
-          throw new Error("Department not found");
-        }
-      }
-
-      // Prepare update data
-      const updateFields = {
-        updated_at: new Date().toISOString(),
-      };
-
+      const updateFields = { updated_at: new Date().toISOString() };
       if (name) updateFields.name = name.trim();
       if (department_id) updateFields.department_id = department_id;
 
-      // Update class
-      const { data: updatedClass, error: updateError } = await supabaseAdmin
-        .from(TABLES.CLASSES)
-        .update(updateFields)
-        .eq("id", classId)
-        .select(
-          `
-          *,
-          department:department_id(id, name)
-        `,
-        )
-        .single();
+      await db.collection(TABLES.CLASSES).doc(classId).update(updateFields);
 
-      if (updateError) {
-        logger.error(`Update class failed: ${updateError.message}`);
-        throw new Error("Failed to update class");
-      }
-
-      logger.info(`Class updated: ${updatedClass.name} by user ${updatedBy}`);
+      const updatedDoc = await db.collection(TABLES.CLASSES).doc(classId).get();
+      logger.info(`Class updated: ${classId} by user ${updatedBy}`);
 
       return {
         success: true,
         message: "Class updated successfully",
-        class: updatedClass,
+        class: { id: updatedDoc.id, ...updatedDoc.data() },
       };
     } catch (error) {
       logger.error(`Update class error: ${error.message}`);
@@ -257,50 +202,27 @@ class ClassService {
 
   /**
    * Delete class (hard delete)
-   * @param {string} classId - Class ID
-   * @param {string} deletedBy - User ID who deleted the class
-   * @returns {Object} Delete result
    */
   async deleteClass(classId, deletedBy) {
     try {
-      // Check if class exists
-      const { data: existingClass, error: fetchError } = await supabaseAdmin
-        .from(TABLES.CLASSES)
-        .select("*")
-        .eq("id", classId)
-        .single();
+      const classDoc = await db.collection(TABLES.CLASSES).doc(classId).get();
+      if (!classDoc.exists) throw new Error("Class not found");
 
-      if (fetchError || !existingClass) {
-        throw new Error("Class not found");
-      }
-
-      // Check if class has students
-      const { data: students } = await supabaseAdmin
-        .from(TABLES.USERS)
-        .select("id")
-        .eq("class_id", classId);
-
-      if (students && students.length > 0) {
+      // Check for students
+      const studentsSnap = await db
+        .collection(TABLES.USERS)
+        .where("class_id", "==", classId)
+        .limit(1)
+        .get();
+      if (!studentsSnap.empty) {
         throw new Error("Cannot delete class with enrolled students");
       }
 
-      // Hard delete class
-      const { error: deleteError } = await supabaseAdmin
-        .from(TABLES.CLASSES)
-        .delete()
-        .eq("id", classId);
+      await db.collection(TABLES.CLASSES).doc(classId).delete();
 
-      if (deleteError) {
-        logger.error(`Delete class failed: ${deleteError.message}`);
-        throw new Error("Failed to delete class");
-      }
+      logger.info(`Class deleted: ${classId} by user ${deletedBy}`);
 
-      logger.info(`Class deleted: ${existingClass.name} by user ${deletedBy}`);
-
-      return {
-        success: true,
-        message: "Class deleted successfully",
-      };
+      return { success: true, message: "Class deleted successfully" };
     } catch (error) {
       logger.error(`Delete class error: ${error.message}`);
       throw error;
@@ -309,78 +231,30 @@ class ClassService {
 
   /**
    * Add student to class
-   * @param {string} classId - Class ID
-   * @param {string} studentId - Student ID
-   * @param {string} addedBy - User ID who added the student
-   * @returns {Object} Result
    */
   async addStudentToClass(classId, studentId, addedBy) {
     try {
-      // Verify class exists
-      const { data: classData, error: classError } = await supabaseAdmin
-        .from(TABLES.CLASSES)
-        .select("id, name, num_students")
-        .eq("id", classId)
-        .single();
+      const classDoc = await db.collection(TABLES.CLASSES).doc(classId).get();
+      if (!classDoc.exists) throw new Error("Class not found");
 
-      if (classError || !classData) {
-        throw new Error("Class not found");
-      }
+      const studentDoc = await db.collection(TABLES.USERS).doc(studentId).get();
+      if (!studentDoc.exists) throw new Error("Student not found");
 
-      // Verify student exists and is a student role
-      const { data: student, error: studentError } = await supabaseAdmin
-        .from(TABLES.USERS)
-        .select(
-          `
-          id, username, roll_number, class_id,
-          roles!inner(name)
-        `,
-        )
-        .eq("id", studentId)
-        .eq("roles.name", "student")
-        .single();
+      const student = studentDoc.data();
+      if (student.role !== "student") throw new Error("User is not a student");
+      if (student.class_id) throw new Error("Student is already enrolled in a class");
 
-      if (studentError || !student) {
-        throw new Error("Student not found");
-      }
+      await db.collection(TABLES.USERS).doc(studentId).update({ class_id: classId });
 
-      // Check if student is already in a class
-      if (student.class_id) {
-        throw new Error("Student is already enrolled in a class");
-      }
+      const classData = classDoc.data();
+      await db.collection(TABLES.CLASSES).doc(classId).update({
+        num_students: (classData.num_students || 0) + 1,
+        updated_at: new Date().toISOString(),
+      });
 
-      // Add student to class
-      const { error: updateError } = await supabaseAdmin
-        .from(TABLES.USERS)
-        .update({ class_id: classId })
-        .eq("id", studentId);
+      logger.info(`Student ${studentId} added to class ${classId} by ${addedBy}`);
 
-      if (updateError) {
-        logger.error(`Add student to class failed: ${updateError.message}`);
-        throw new Error("Failed to add student to class");
-      }
-
-      // Update class student count
-      const { error: countError } = await supabaseAdmin
-        .from(TABLES.CLASSES)
-        .update({
-          num_students: classData.num_students + 1,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", classId);
-
-      if (countError) {
-        logger.error(`Update class count failed: ${countError.message}`);
-      }
-
-      logger.info(
-        `Student ${student.username} added to class ${classData.name} by user ${addedBy}`,
-      );
-
-      return {
-        success: true,
-        message: "Student added to class successfully",
-      };
+      return { success: true, message: "Student added to class successfully" };
     } catch (error) {
       logger.error(`Add student to class error: ${error.message}`);
       throw error;
@@ -389,70 +263,31 @@ class ClassService {
 
   /**
    * Remove student from class
-   * @param {string} classId - Class ID
-   * @param {string} studentId - Student ID
-   * @param {string} removedBy - User ID who removed the student
-   * @returns {Object} Result
    */
   async removeStudentFromClass(classId, studentId, removedBy) {
     try {
-      // Verify class exists
-      const { data: classData, error: classError } = await supabaseAdmin
-        .from(TABLES.CLASSES)
-        .select("id, name, num_students")
-        .eq("id", classId)
-        .single();
+      const classDoc = await db.collection(TABLES.CLASSES).doc(classId).get();
+      if (!classDoc.exists) throw new Error("Class not found");
 
-      if (classError || !classData) {
-        throw new Error("Class not found");
-      }
+      const studentDoc = await db.collection(TABLES.USERS).doc(studentId).get();
+      if (!studentDoc.exists) throw new Error("Student not found");
 
-      // Verify student exists and is in this class
-      const { data: student, error: studentError } = await supabaseAdmin
-        .from(TABLES.USERS)
-        .select("id, username, class_id")
-        .eq("id", studentId)
-        .eq("class_id", classId)
-        .single();
-
-      if (studentError || !student) {
+      const student = studentDoc.data();
+      if (student.class_id !== classId) {
         throw new Error("Student not found in this class");
       }
 
-      // Remove student from class
-      const { error: updateError } = await supabaseAdmin
-        .from(TABLES.USERS)
-        .update({ class_id: null })
-        .eq("id", studentId);
+      await db.collection(TABLES.USERS).doc(studentId).update({ class_id: null });
 
-      if (updateError) {
-        logger.error(
-          `Remove student from class failed: ${updateError.message}`,
-        );
-        throw new Error("Failed to remove student from class");
-      }
+      const classData = classDoc.data();
+      await db.collection(TABLES.CLASSES).doc(classId).update({
+        num_students: Math.max(0, (classData.num_students || 1) - 1),
+        updated_at: new Date().toISOString(),
+      });
 
-      // Update class student count
-      const { error: countError } = await supabaseAdmin
-        .from(TABLES.CLASSES)
-        .update({
-          num_students: Math.max(0, classData.num_students - 1),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", classId);
+      logger.info(`Student ${studentId} removed from class ${classId} by ${removedBy}`);
 
-      if (countError) {
-        logger.error(`Update class count failed: ${countError.message}`);
-      }
-
-      logger.info(
-        `Student ${student.username} removed from class ${classData.name} by user ${removedBy}`,
-      );
-
-      return {
-        success: true,
-        message: "Student removed from class successfully",
-      };
+      return { success: true, message: "Student removed from class successfully" };
     } catch (error) {
       logger.error(`Remove student from class error: ${error.message}`);
       throw error;
@@ -460,42 +295,33 @@ class ClassService {
   }
 
   /**
-   * Get available students (not enrolled in any class)
-   * @param {string} search - Search term
-   * @returns {Object} Available students
+   * Get available students (not in any class)
    */
   async getAvailableStudents(search = "") {
     try {
-      let query = supabaseAdmin
-        .from(TABLES.USERS)
-        .select(
-          `
-          id, username, roll_number,
-          roles!inner(name)
-        `,
-        )
-        .eq("roles.name", "student")
-        .is("class_id", null);
+      const snap = await db
+        .collection(TABLES.USERS)
+        .where("role", "==", "student")
+        .where("class_id", "==", null)
+        .limit(20)
+        .get();
+
+      let students = snap.docs.map((d) => ({
+        id: d.id,
+        username: d.data().username,
+        roll_number: d.data().roll_number,
+      }));
 
       if (search) {
-        query = query.or(
-          `username.ilike.%${search}%,roll_number.ilike.%${search}%`,
+        const s = search.toLowerCase();
+        students = students.filter(
+          (st) =>
+            st.username?.toLowerCase().includes(s) ||
+            st.roll_number?.toLowerCase().includes(s)
         );
       }
 
-      query = query.limit(20).order("username");
-
-      const { data: students, error } = await query;
-
-      if (error) {
-        logger.error(`Get available students failed: ${error.message}`);
-        throw new Error("Failed to fetch available students");
-      }
-
-      return {
-        success: true,
-        students: students || [],
-      };
+      return { success: true, students };
     } catch (error) {
       logger.error(`Get available students error: ${error.message}`);
       throw error;
@@ -503,25 +329,13 @@ class ClassService {
   }
 
   /**
-   * Get all departments for dropdown
-   * @returns {Object} List of departments
+   * Get departments dropdown
    */
   async getDepartments() {
     try {
-      const { data: departments, error } = await supabaseAdmin
-        .from(TABLES.DEPARTMENTS)
-        .select("id, name")
-        .order("name");
-
-      if (error) {
-        logger.error(`Get departments failed: ${error.message}`);
-        throw new Error("Failed to fetch departments");
-      }
-
-      return {
-        success: true,
-        departments: departments || [],
-      };
+      const snap = await db.collection(TABLES.DEPARTMENTS).orderBy("name").get();
+      const departments = snap.docs.map((d) => ({ id: d.id, name: d.data().name }));
+      return { success: true, departments };
     } catch (error) {
       logger.error(`Get departments error: ${error.message}`);
       throw error;
@@ -530,26 +344,20 @@ class ClassService {
 
   /**
    * Get class statistics
-   * @returns {Object} Class statistics
    */
   async getClassStats() {
     try {
-      // Get total classes
-      const { count: totalClasses } = await supabaseAdmin
-        .from(TABLES.CLASSES)
-        .select("*", { count: "exact", head: true });
-
-      // Get total students in classes
-      const { count: totalStudentsInClasses } = await supabaseAdmin
-        .from(TABLES.USERS)
-        .select("*", { count: "exact", head: true })
-        .not("class_id", "is", null);
+      const classesSnap = await db.collection(TABLES.CLASSES).get();
+      const studentsSnap = await db
+        .collection(TABLES.USERS)
+        .where("class_id", "!=", null)
+        .get();
 
       return {
         success: true,
         stats: {
-          totalClasses: totalClasses || 0,
-          totalStudentsInClasses: totalStudentsInClasses || 0,
+          totalClasses: classesSnap.size,
+          totalStudentsInClasses: studentsSnap.size,
         },
       };
     } catch (error) {
@@ -559,7 +367,5 @@ class ClassService {
   }
 }
 
-// Create singleton instance
 const classService = new ClassService();
-
 module.exports = classService;

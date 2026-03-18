@@ -1,6 +1,7 @@
-const jwtUtils = require("../utils/jwt");
-const logger = require("../config/logger");
-const { supabaseAdmin } = require("../config/database");
+const jwtUtils = require("../../middleware/auth").authenticateToken.__jwtUtils || require("../../utils/jwt");
+// Re-export from the main auth middleware (Firebase Firestore version)
+const mainAuth = require("../../middleware/auth");
+const { db } = require("../../config/database");
 const {
   HTTP_STATUS,
   ERROR_MESSAGES,
@@ -35,24 +36,12 @@ const authenticateToken = async (req, res, next) => {
     // Verify the token
     const decoded = jwtUtils.verifyAccessToken(token);
 
-    // Fetch user details from database to ensure user still exists and is active
-    const { data: user, error } = await supabaseAdmin
-      .from(TABLES.USERS)
-      .select(
-        `
-        id,
-        username,
-        role_id,
-        course_ids,
-        deleted_at,
-        roles!inner(name)
-      `
-      )
-      .eq("id", decoded.userId)
-      .is("deleted_at", null)
-      .single();
+    // Fetch user from Firestore
+    const userDoc = await db.collection(TABLES.USERS).doc(decoded.userId).get();
+    const user = userDoc.exists ? userDoc.data() : null;
+    const error = !userDoc.exists;
 
-    if (error || !user) {
+    if (error || !user || user.deleted_at) {
       logger.warn(
         `Authentication failed: User not found or inactive | User ID: ${decoded.userId} | IP: ${req.ip}`
       );
@@ -63,9 +52,9 @@ const authenticateToken = async (req, res, next) => {
     }
 
     // Check if user role matches token role (prevent role escalation)
-    if (user.roles.name !== decoded.role) {
+    if (user.role !== decoded.role) {
       logger.warn(
-        `Authentication failed: Role mismatch | User: ${user.username} | Token Role: ${decoded.role} | DB Role: ${user.roles.name} | Route: ${req.originalUrl}`
+        `Authentication failed: Role mismatch | User: ${user.username} | Token Role: ${decoded.role} | DB Role: ${user.role} | Route: ${req.originalUrl}`
       );
       return res.status(HTTP_STATUS.UNAUTHORIZED).json({
         success: false,
@@ -76,18 +65,18 @@ const authenticateToken = async (req, res, next) => {
 
     // Attach user information to request
     req.user = {
-      id: user.id,
+      id: userDoc.id,
       username: user.username,
-      role: user.roles.name,
-      roleId: user.role_id,
-      course_ids: user.course_ids,
+      role: user.role,
+      roleId: user.role,
+      course_ids: user.course_ids || [],
     };
 
     logger.logAuth(
       "TOKEN_VERIFICATION",
       user.username,
       true,
-      `Role: ${user.roles.name} | Route: ${req.originalUrl}`
+      `Role: ${user.role} | Route: ${req.originalUrl}`
     );
     next();
   } catch (error) {
@@ -249,36 +238,22 @@ const optionalAuth = async (req, res, next) => {
     // Try to verify token
     const decoded = jwtUtils.verifyAccessToken(token);
 
-    // Fetch user details
-    const { data: user, error } = await supabaseAdmin
-      .from(TABLES.USERS)
-      .select(
-        `
-        id,
-        username,
-        role_id,
-        course_ids,
-        deleted_at,
-        roles!inner(name)
-      `
-      )
-      .eq("id", decoded.userId)
-      .is("deleted_at", null)
-      .single();
+    // Fetch user from Firestore
+    const userDoc = await db.collection(TABLES.USERS).doc(decoded.userId).get();
+    const user = userDoc.exists ? userDoc.data() : null;
 
-    if (error || !user || user.roles.name !== decoded.role) {
-      // Invalid token, continue without authentication
+    if (!user || user.deleted_at || user.role !== decoded.role) {
       req.user = null;
       return next();
     }
 
     // Valid token, attach user
     req.user = {
-      id: user.id,
+      id: userDoc.id,
       username: user.username,
-      role: user.roles.name,
-      roleId: user.role_id,
-      course_ids: user.course_ids,
+      role: user.role,
+      roleId: user.role,
+      course_ids: user.course_ids || [],
     };
 
     next();

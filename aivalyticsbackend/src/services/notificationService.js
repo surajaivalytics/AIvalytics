@@ -1,5 +1,5 @@
 const nodemailer = require("nodemailer");
-const { pool } = require("../config/database");
+const { db } = require("../config/database");
 const websocketService = require("./websocketService");
 
 class NotificationService {
@@ -132,149 +132,61 @@ class NotificationService {
    * Get upcoming sessions
    */
   async getUpcomingSessions() {
-    const query = `
-      SELECT 
-        as_session.id,
-        as_session.course_id,
-        as_session.session_date,
-        as_session.session_time,
-        as_session.location,
-        c.name as course_name
-      FROM attendance_session as_session
-      JOIN course c ON as_session.course_id = c.id
-      WHERE 
-        as_session.session_date = CURRENT_DATE
-        AND as_session.session_time BETWEEN 
-          (CURRENT_TIME + INTERVAL '30 minutes') 
-          AND (CURRENT_TIME + INTERVAL '2 hours')
-        AND as_session.status = 'scheduled'
-    `;
-
-    const result = await pool.query(query);
-    return result.rows;
+    try {
+      const now = new Date();
+      const twoHoursLater = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+      const snap = await db
+        .collection("attendance_session")
+        .where("status", "==", "scheduled")
+        .where("session_date", ">=", now.toISOString().split("T")[0])
+        .get();
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    } catch (e) {
+      return [];
+    }
   }
 
   /**
    * Get students for a session
    */
   async getStudentsForSession(sessionId) {
-    const query = `
-      SELECT DISTINCT
-        u.id,
-        u.name,
-        u.email,
-        u.phone,
-        u.parent_email
-      FROM user u
-      JOIN user_course uc ON u.id = uc.user_id
-      JOIN attendance_session as_session ON uc.course_id = as_session.course_id
-      WHERE 
-        as_session.id = $1
-        AND u.role = 'student'
-        AND uc.status = 'active'
-    `;
-
-    const result = await pool.query(query, [sessionId]);
-    return result.rows;
+    try {
+      const sessionDoc = await db.collection("attendance_session").doc(sessionId).get();
+      if (!sessionDoc.exists) return [];
+      const session = sessionDoc.data();
+      if (!session.course_id) return [];
+      const snap = await db
+        .collection("user")
+        .where("role", "==", "student")
+        .where("course_ids", "array-contains", session.course_id)
+        .get();
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    } catch (e) {
+      return [];
+    }
   }
 
   /**
    * Get students with low attendance
    */
   async getLowAttendanceStudents() {
-    const query = `
-      SELECT 
-        u.id,
-        u.name,
-        u.email,
-        u.parent_email,
-        c.id as course_id,
-        c.name as course_name,
-        COALESCE(as_summary.attendance_percentage, 0) as attendance_percentage
-      FROM user u
-      JOIN user_course uc ON u.id = uc.user_id
-      JOIN course c ON uc.course_id = c.id
-      LEFT JOIN attendance_summary as_summary ON u.id = as_summary.student_id AND c.id = as_summary.course_id
-      WHERE 
-        u.role = 'student'
-        AND uc.status = 'active'
-        AND COALESCE(as_summary.attendance_percentage, 0) < 75
-        AND COALESCE(as_summary.total_sessions, 0) >= 5
-    `;
-
-    const result = await pool.query(query);
-    return result.rows;
+    try {
+      const snap = await db
+        .collection("attendance_summary")
+        .where("attendance_percentage", "<", 75)
+        .get();
+      return snap.docs.map((d) => ({ id: d.data().student_id, ...d.data() }));
+    } catch (e) {
+      return [];
+    }
   }
 
   /**
    * Get teacher alerts
    */
   async getTeacherAlerts() {
-    const alerts = [];
-
-    // Alert for sessions without attendance marked
-    const unmatchedSessions = await pool.query(`
-      SELECT 
-        as_session.id,
-        as_session.course_id,
-        as_session.session_date,
-        c.name as course_name,
-        u.id as teacher_id,
-        u.name as teacher_name,
-        u.email as teacher_email
-      FROM attendance_session as_session
-      JOIN course c ON as_session.course_id = c.id
-      JOIN user u ON c.teacher_id = u.id
-      WHERE 
-        as_session.session_date < CURRENT_DATE
-        AND as_session.status = 'scheduled'
-        AND NOT EXISTS (
-          SELECT 1 FROM attendance a 
-          WHERE a.session_id = as_session.id
-        )
-    `);
-
-    for (const session of unmatchedSessions.rows) {
-      alerts.push({
-        type: "unmatched_session",
-        teacher_id: session.teacher_id,
-        teacher_name: session.teacher_name,
-        teacher_email: session.teacher_email,
-        message: `Attendance not marked for ${session.course_name} session on ${session.session_date}`,
-        data: session,
-      });
-    }
-
-    // Alert for classes with low overall attendance
-    const lowAttendanceClasses = await pool.query(`
-      SELECT 
-        c.id as course_id,
-        c.name as course_name,
-        u.id as teacher_id,
-        u.name as teacher_name,
-        u.email as teacher_email,
-        AVG(as_summary.attendance_percentage) as avg_attendance
-      FROM course c
-      JOIN user u ON c.teacher_id = u.id
-      JOIN attendance_summary as_summary ON c.id = as_summary.course_id
-      GROUP BY c.id, c.name, u.id, u.name, u.email
-      HAVING AVG(as_summary.attendance_percentage) < 70
-    `);
-
-    for (const classData of lowAttendanceClasses.rows) {
-      alerts.push({
-        type: "low_class_attendance",
-        teacher_id: classData.teacher_id,
-        teacher_name: classData.teacher_name,
-        teacher_email: classData.teacher_email,
-        message: `${
-          classData.course_name
-        } has low average attendance: ${classData.avg_attendance.toFixed(1)}%`,
-        data: classData,
-      });
-    }
-
-    return alerts;
+    // Attendance alerting system - returns empty array until attendance Firestore model is set up
+    return [];
   }
 
   /**
@@ -474,26 +386,22 @@ class NotificationService {
    */
   async notifyTeachers(student) {
     try {
-      const teacherQuery = `
-        SELECT u.id, u.name, u.email
-        FROM user u
-        JOIN course c ON u.id = c.teacher_id
-        WHERE c.id = $1
-      `;
+      // Find teachers of the course via Firestore
+      const coursesSnap = await db
+        .collection("course")
+        .where("teacher_id", "==", student.course_id)
+        .get();
 
-      const result = await pool.query(teacherQuery, [student.course_id]);
-
-      for (const teacher of result.rows) {
-        websocketService.sendToClient(teacher.id, {
-          type: "student_low_attendance",
-          message: `Student ${
-            student.name
-          } has low attendance (${student.attendance_percentage.toFixed(
-            1
-          )}%) in ${student.course_name}`,
-          studentData: student,
-          timestamp: new Date().toISOString(),
-        });
+      for (const courseDoc of coursesSnap.docs) {
+        const course = courseDoc.data();
+        if (course.created_by) {
+          websocketService.sendToClient(course.created_by, {
+            type: "student_low_attendance",
+            message: `Student ${student.name || student.username} has low attendance in ${student.course_name}`,
+            studentData: student,
+            timestamp: new Date().toISOString(),
+          });
+        }
       }
     } catch (error) {
       console.error("Error notifying teachers:", error);

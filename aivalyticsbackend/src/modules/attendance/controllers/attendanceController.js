@@ -1,4 +1,4 @@
-const { supabase } = require("../config/database");
+const { db } = require("../config/database");
 
 /**
  * Create a new attendance session (for teachers)

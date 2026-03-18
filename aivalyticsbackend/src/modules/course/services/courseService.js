@@ -1,4 +1,4 @@
-const { supabaseAdmin } = require("../config/database");
+const { db } = require("../config/database");
 const logger = require("../config/logger");
 const {
   HTTP_STATUS,

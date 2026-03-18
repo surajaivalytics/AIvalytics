@@ -1,6 +1,6 @@
 const jwtUtils = require("../utils/jwt");
 const logger = require("../config/logger");
-const { supabaseAdmin } = require("../config/database");
+const { db } = require("../config/database");
 const {
   HTTP_STATUS,
   ERROR_MESSAGES,
@@ -11,7 +11,7 @@ const {
 
 /**
  * Authentication Middleware
- * Enterprise-grade authentication and authorization
+ * Firebase Firestore-backed authentication and authorization
  */
 
 /**
@@ -35,24 +35,10 @@ const authenticateToken = async (req, res, next) => {
     // Verify the token
     const decoded = jwtUtils.verifyAccessToken(token);
 
-    // Fetch user details from database to ensure user still exists and is active
-    const { data: user, error } = await supabaseAdmin
-      .from(TABLES.USERS)
-      .select(
-        `
-        id,
-        username,
-        role_id,
-        course_ids,
-        deleted_at,
-        roles!inner(name)
-      `
-      )
-      .eq("id", decoded.userId)
-      .is("deleted_at", null)
-      .single();
+    // Fetch user from Firestore to ensure they still exist and are active
+    const userDoc = await db.collection(TABLES.USERS).doc(decoded.userId).get();
 
-    if (error || !user) {
+    if (!userDoc.exists) {
       logger.warn(
         `Authentication failed: User not found or inactive | User ID: ${decoded.userId} | IP: ${req.ip}`
       );
@@ -62,10 +48,23 @@ const authenticateToken = async (req, res, next) => {
       });
     }
 
-    // Check if user role matches token role (prevent role escalation)
-    if (user.roles.name !== decoded.role) {
+    const user = userDoc.data();
+
+    // Check if user is soft-deleted
+    if (user.deleted_at) {
       logger.warn(
-        `Authentication failed: Role mismatch | User: ${user.username} | Token Role: ${decoded.role} | DB Role: ${user.roles.name} | Route: ${req.originalUrl}`
+        `Authentication failed: User is inactive | User ID: ${decoded.userId} | IP: ${req.ip}`
+      );
+      return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+        success: false,
+        message: ERROR_MESSAGES.INVALID_TOKEN,
+      });
+    }
+
+    // Check if user role matches token role (prevent role escalation)
+    if (user.role !== decoded.role) {
+      logger.warn(
+        `Authentication failed: Role mismatch | User: ${user.username} | Token Role: ${decoded.role} | DB Role: ${user.role} | Route: ${req.originalUrl}`
       );
       return res.status(HTTP_STATUS.UNAUTHORIZED).json({
         success: false,
@@ -76,18 +75,18 @@ const authenticateToken = async (req, res, next) => {
 
     // Attach user information to request
     req.user = {
-      id: user.id,
+      id: userDoc.id,
       username: user.username,
-      role: user.roles.name,
-      roleId: user.role_id,
-      course_ids: user.course_ids,
+      role: user.role,
+      roleId: user.role,
+      course_ids: user.course_ids || [],
     };
 
     logger.logAuth(
       "TOKEN_VERIFICATION",
       user.username,
       true,
-      `Role: ${user.roles.name} | Route: ${req.originalUrl}`
+      `Role: ${user.role} | Route: ${req.originalUrl}`
     );
     next();
   } catch (error) {
@@ -110,8 +109,6 @@ const authenticateToken = async (req, res, next) => {
 
 /**
  * Authorize user based on required roles
- * @param {string|string[]} requiredRoles - Required role(s) for access
- * @returns {Function} Middleware function
  */
 const authorizeRoles = (requiredRoles) => (req, res, next) => {
   try {
@@ -130,7 +127,6 @@ const authorizeRoles = (requiredRoles) => (req, res, next) => {
       ? requiredRoles
       : [requiredRoles];
 
-    // Check if user has any of the required roles
     const hasRequiredRole = rolesArray.includes(userRole);
 
     if (!hasRequiredRole) {
@@ -138,9 +134,7 @@ const authorizeRoles = (requiredRoles) => (req, res, next) => {
         "ROLE_AUTHORIZATION",
         req.user.username,
         false,
-        `Required: ${rolesArray.join(", ")} | User Role: ${userRole} | Route: ${
-          req.originalUrl
-        }`
+        `Required: ${rolesArray.join(", ")} | User Role: ${userRole} | Route: ${req.originalUrl}`
       );
 
       return res.status(HTTP_STATUS.FORBIDDEN).json({
@@ -158,9 +152,7 @@ const authorizeRoles = (requiredRoles) => (req, res, next) => {
       "ROLE_AUTHORIZATION",
       req.user.username,
       true,
-      `Role: ${userRole} | Required: ${rolesArray.join(", ")} | Route: ${
-        req.originalUrl
-      }`
+      `Role: ${userRole} | Required: ${rolesArray.join(", ")} | Route: ${req.originalUrl}`
     );
 
     next();
@@ -175,8 +167,6 @@ const authorizeRoles = (requiredRoles) => (req, res, next) => {
 
 /**
  * Authorize user based on role hierarchy (minimum role level)
- * @param {string} minimumRole - Minimum required role
- * @returns {Function} Middleware function
  */
 const authorizeMinimumRole = (minimumRole) => (req, res, next) => {
   try {
@@ -208,7 +198,6 @@ const authorizeMinimumRole = (minimumRole) => (req, res, next) => {
         false,
         `User Level: ${userRoleLevel} | Required Level: ${minimumRoleLevel}`
       );
-
       return res.status(HTTP_STATUS.FORBIDDEN).json({
         success: false,
         message: ERROR_MESSAGES.INSUFFICIENT_PERMISSIONS,
@@ -241,49 +230,35 @@ const optionalAuth = async (req, res, next) => {
     const token = jwtUtils.extractTokenFromHeader(authHeader);
 
     if (!token) {
-      // No token provided, continue without authentication
       req.user = null;
       return next();
     }
 
-    // Try to verify token
     const decoded = jwtUtils.verifyAccessToken(token);
+    const userDoc = await db.collection(TABLES.USERS).doc(decoded.userId).get();
 
-    // Fetch user details
-    const { data: user, error } = await supabaseAdmin
-      .from(TABLES.USERS)
-      .select(
-        `
-        id,
-        username,
-        role_id,
-        course_ids,
-        deleted_at,
-        roles!inner(name)
-      `
-      )
-      .eq("id", decoded.userId)
-      .is("deleted_at", null)
-      .single();
-
-    if (error || !user || user.roles.name !== decoded.role) {
-      // Invalid token, continue without authentication
+    if (!userDoc.exists) {
       req.user = null;
       return next();
     }
 
-    // Valid token, attach user
+    const user = userDoc.data();
+
+    if (user.deleted_at || user.role !== decoded.role) {
+      req.user = null;
+      return next();
+    }
+
     req.user = {
-      id: user.id,
+      id: userDoc.id,
       username: user.username,
-      role: user.roles.name,
-      roleId: user.role_id,
-      course_ids: user.course_ids,
+      role: user.role,
+      roleId: user.role,
+      course_ids: user.course_ids || [],
     };
 
     next();
   } catch (error) {
-    // Token verification failed, continue without authentication
     req.user = null;
     next();
   }
@@ -291,8 +266,6 @@ const optionalAuth = async (req, res, next) => {
 
 /**
  * Check if user can access their own resource or has admin privileges
- * @param {string} userIdParam - Parameter name containing user ID
- * @returns {Function} Middleware function
  */
 const authorizeOwnerOrAdmin =
   (userIdParam = "userId") =>
@@ -309,12 +282,10 @@ const authorizeOwnerOrAdmin =
       const currentUserId = req.user.id;
       const userRole = req.user.role;
 
-      // Allow if user is accessing their own resource
       if (targetUserId === currentUserId) {
         return next();
       }
 
-      // Allow if user has admin privileges (HOD or Principal)
       if (userRole === ROLES.HOD || userRole === ROLES.PRINCIPAL) {
         return next();
       }
@@ -343,8 +314,8 @@ const authorizeOwnerOrAdmin =
  * Rate limiting for authentication endpoints
  */
 const authRateLimit = require("express-rate-limit")({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // limit each IP to 5 requests per windowMs
+  windowMs: 15 * 60 * 1000,
+  max: 5,
   message: {
     success: false,
     message: "Too many authentication attempts, please try again later",

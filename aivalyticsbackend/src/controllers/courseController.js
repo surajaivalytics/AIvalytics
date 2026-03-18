@@ -1,7 +1,7 @@
 const courseService = require("../services/courseService");
 const { HTTP_STATUS } = require("../config/constants");
 const logger = require("../config/logger");
-const { supabaseAdmin } = require("../config/database");
+const { db } = require("../config/database");
 const { TABLES } = require("../config/constants");
 
 /**
