@@ -269,6 +269,92 @@ const markAttendance = async (req, res) => {
       "[Attendance] Attendance marked successfully for session:",
       session_id
     );
+
+    // ----- RECALCULATE ATTENDANCE SUMMARY FOR THIS COURSE -----
+    // This is idempotent and perfectly handles re-marking attendance
+    console.log(`[Attendance] Recalculating summaries for course: ${sessionData.course_id}`);
+    
+    try {
+      const allCourseSessionsSnapshot = await db.collection(TABLES.ATTENDANCE_SESSIONS)
+        .where("course_id", "==", sessionData.course_id)
+        .get();
+        
+      const courseSessionIds = allCourseSessionsSnapshot.docs.map(doc => doc.id);
+      
+      if (courseSessionIds.length > 0) {
+        const summaryMap = {}; // student_id -> summary object
+        
+        // Fetch in batches of 10 for 'in' query limit
+        for (let i = 0; i < courseSessionIds.length; i += 10) {
+          const batchSessionIds = courseSessionIds.slice(i, i + 10);
+          const recordsSnapshot = await db.collection(TABLES.ATTENDANCE)
+            .where("session_id", "in", batchSessionIds)
+            .get();
+            
+          recordsSnapshot.docs.forEach(doc => {
+            const data = doc.data();
+            const sid = data.student_id;
+            if (!summaryMap[sid]) {
+              summaryMap[sid] = {
+                student_id: sid,
+                course_id: sessionData.course_id,
+                total_sessions: 0,
+                total_present: 0,
+                total_absent: 0,
+                total_late: 0,
+                total_excused: 0
+              };
+            }
+            const s = summaryMap[sid];
+            s.total_sessions += 1;
+            if (data.attendance_status === "present") s.total_present += 1;
+            else if (data.attendance_status === "absent") s.total_absent += 1;
+            else if (data.attendance_status === "late") s.total_late += 1;
+            else if (data.attendance_status === "excused" || data.attendance_status === "medical_leave") s.total_excused += 1;
+          });
+        }
+        
+        // Add usernames and commit directly
+        let summaryWriteBatch = db.batch();
+        let opsCount = 0;
+        
+        for (const sid of Object.keys(summaryMap)) {
+          const s = summaryMap[sid];
+          const presentCount = s.total_present + s.total_late + s.total_excused; // Assuming late/excused counts as present for percentage
+          const percentage = s.total_sessions > 0 ? (presentCount / s.total_sessions) * 100 : 0;
+          
+          s.attendance_percentage = percentage.toFixed(2);
+          if (percentage >= 90) s.status = "excellent";
+          else if (percentage >= 75) s.status = "good";
+          else if (percentage >= 60) s.status = "warning";
+          else s.status = "critical";
+          
+          const uDoc = await db.collection(TABLES.USERS).doc(sid).get();
+          s.student_name = uDoc.exists ? (uDoc.data().username || uDoc.data().displayName) : "Unknown";
+          s.last_updated = admin.firestore.FieldValue.serverTimestamp();
+          
+          // Use composite ID for the summary doc so it overwrites correctly
+          const summaryDocId = `${sessionData.course_id}_${sid}`;
+          const docRef = db.collection(TABLES.ATTENDANCE_SUMMARY).doc(summaryDocId);
+          summaryWriteBatch.set(docRef, s, { merge: true });
+          opsCount++;
+          
+          // Commit if batch approaches 500 limit
+          if (opsCount >= 450) {
+            await summaryWriteBatch.commit();
+            summaryWriteBatch = db.batch();
+            opsCount = 0;
+          }
+        }
+        
+        if (opsCount > 0) {
+          await summaryWriteBatch.commit();
+        }
+        console.log(`[Attendance] Summaries updated for ${Object.keys(summaryMap).length} students`);
+      }
+    } catch (summaryError) {
+      console.error("[Attendance] Summary update failed. Continuing anyway.", summaryError);
+    }
     res.json({
       success: true,
       message: `Attendance marked for ${attendanceResults.length} students`,

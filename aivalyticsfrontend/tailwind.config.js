@@ -50,6 +50,7 @@ module.exports = {
         'navy-gradient': 'linear-gradient(135deg, #1E2A47 0%, #2A3754 50%, #1E2A47 100%)',
       },
       fontFamily: {
+        poppins: ['Poppins', 'sans-serif'],
         primary: [
           'Inter',
           'system-ui',

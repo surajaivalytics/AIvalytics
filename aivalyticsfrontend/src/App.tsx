@@ -1,9 +1,9 @@
 import React from "react";
 import {
-  BrowserRouter as Router,
-  Routes,
-  Route,
-  Navigate,
+ BrowserRouter as Router,
+ Routes,
+ Route,
+ Navigate,
 } from "react-router-dom";
 
 import { AuthProvider } from "./contexts/AuthContext";
@@ -20,200 +20,82 @@ import ResetPassword from "./pages/ResetPassword";
 import SelectRole from "./pages/SelectRole";
 import Dashboard from "./pages/Dashboard";
 import Profile from "./pages/Profile";
-import Courses from "./pages/Courses";
-import MyCourses from "./pages/MyCoursesPage";
-import StudentQuizzesPage from "./pages/StudentQuizzesPage";
-import Reports from "./pages/Reports";
+import Courses from "./pages/student/Courses";
+import MyCourses from "./pages/teacher/MyCoursesPage";
+import StudentQuizzesPage from "./pages/student/StudentQuizzesPage";
+import Reports from "./pages/student/Reports";
 import Unauthorized from "./pages/Unauthorized";
 import QuizGeneratorPage from "./pages/QuizGeneratorPage";
-import ClassManagementPage from "./pages/ClassManagementPage";
-import DepartmentsPage from "./pages/DepartmentsPage";
-import StudentAttendanceDashboard from "./pages/StudentAttendanceDashboard";
-import TeacherAcademicManagement from "./pages/TeacherAcademicManagement";
-import TeacherPerformance from "./pages/TeacherPerformance";
-import TeacherReports from "./pages/TeacherReports";
-import TeacherAlerts from "./pages/TeacherAlerts";
+import ClassManagementPage from "./pages/hod/ClassManagementPage";
+import DepartmentsPage from "./pages/principal/DepartmentsPage";
+import StudentAttendanceDashboard from "./pages/student/StudentAttendanceDashboard";
+import TeacherAcademicManagement from "./pages/teacher/TeacherAcademicManagement";
+import TeacherPerformance from "./pages/teacher/TeacherPerformance";
+import TeacherReports from "./pages/teacher/TeacherReports";
+import TeacherAlerts from "./pages/teacher/TeacherAlerts";
+import AcademicManagement from "./pages/AcademicManagement/AcademicManagement";
+
+const ProtectedLayout = ({ children, allowedRoles }: { children: React.ReactNode, allowedRoles?: string[] }) => (
+ <ProtectedRoute allowedRoles={allowedRoles}>
+ <Layout>
+ {children}
+ </Layout>
+ </ProtectedRoute>
+);
 
 function App() {
-  return (
-    <ThemeProvider>
-      <AuthProvider>
-        <Router>
-          <div className="App bg-white dark:bg-gray-900 min-h-screen transition-colors duration-300">
-            <ThemedToaster />
+ return (
+ <ThemeProvider>
+ <AuthProvider>
+ <Router>
+ <div className="App bg-white dark:bg-gray-900 min-h-screen transition-colors duration-300">
+ <ThemedToaster />
 
-            <Routes>
-              {/* Public Routes */}
-              <Route path="/login" element={<Login />} />
-              <Route path="/register" element={<Register />} />
-              <Route path="/forgot-password" element={<ForgotPassword />} />
-              <Route path="/reset-password" element={<ResetPassword />} />
-              <Route path="/select-role" element={<ProtectedRoute><SelectRole /></ProtectedRoute>} />
-              <Route path="/unauthorized" element={<Unauthorized />} />
+ <Routes>
+ {/* Public Routes */}
+ <Route path="/login" element={<Login />} />
+ <Route path="/register" element={<Register />} />
+ <Route path="/forgot-password" element={<ForgotPassword />} />
+ <Route path="/reset-password" element={<ResetPassword />} />
+ <Route path="/select-role" element={<ProtectedRoute><SelectRole /></ProtectedRoute>} />
+ <Route path="/unauthorized" element={<Unauthorized />} />
 
-              {/* Protected Routes */}
-              <Route
-                path="/dashboard"
-                element={
-                  <ProtectedRoute>
-                    <Dashboard />
-                  </ProtectedRoute>
-                }
-              />
+ {/* Protected Routes with Layout */}
+ <Route path="/dashboard" element={<ProtectedLayout><Dashboard /></ProtectedLayout>} />
+ <Route path="/profile" element={<ProtectedLayout><Profile /></ProtectedLayout>} />
 
-              <Route
-                path="/profile"
-                element={
-                  <ProtectedRoute>
-                    <Profile />
-                  </ProtectedRoute>
-                }
-              />
+ {/* Student Routes */}
+ <Route path="/courses" element={<ProtectedLayout allowedRoles={["student"]}><Courses /></ProtectedLayout>} />
+ <Route path="/attendance" element={<ProtectedLayout allowedRoles={["student"]}><StudentAttendanceDashboard /></ProtectedLayout>} />
+ <Route path="/reports" element={<ProtectedLayout allowedRoles={["student"]}><Reports /></ProtectedLayout>} />
+ <Route path="/quizzes" element={<ProtectedLayout allowedRoles={["student"]}><StudentQuizzesPage /></ProtectedLayout>} />
 
-              {/* Student Routes */}
-              <Route
-                path="/courses"
-                element={
-                  <ProtectedRoute allowedRoles={["student"]}>
-                    <Courses />
-                  </ProtectedRoute>
-                }
-              />
+ {/* Teacher/HOD/Principal Routes */}
+ <Route path="/academic-management/*" element={<ProtectedLayout allowedRoles={["teacher", "hod", "principal"]}><AcademicManagement /></ProtectedLayout>} />
+ <Route path="/academic-management" element={<ProtectedLayout allowedRoles={["teacher", "hod", "principal"]}><TeacherAcademicManagement /></ProtectedLayout>} />
+ <Route path="/performance" element={<ProtectedLayout allowedRoles={["teacher", "hod", "principal"]}><TeacherPerformance /></ProtectedLayout>} />
+ <Route path="/teacher-reports" element={<ProtectedLayout allowedRoles={["teacher", "hod", "principal"]}><TeacherReports /></ProtectedLayout>} />
+ <Route path="/alerts" element={<ProtectedLayout allowedRoles={["teacher", "hod", "principal"]}><TeacherAlerts /></ProtectedLayout>} />
+ <Route path="/quiz-generator" element={<ProtectedLayout allowedRoles={["teacher", "hod", "principal"]}><QuizGeneratorPage /></ProtectedLayout>} />
+ 
+ {/* Teacher Specific Routes */}
+ <Route path="/my-courses" element={<ProtectedLayout allowedRoles={["teacher"]}><MyCourses /></ProtectedLayout>} />
 
-              <Route
-                path="/academic-management/*"
-                element={
-                  <ProtectedRoute allowedRoles={["teacher", "hod", "principal"]}>
-                    <AcademicManagement />
-                  </ProtectedRoute>
-                }
-              />
+ {/* HOD Routes */}
+ <Route path="/class-management" element={<ProtectedLayout allowedRoles={["hod"]}><ClassManagementPage /></ProtectedLayout>} />
 
-              <Route
-                path="/academic-management"
-                element={
-                  <ProtectedRoute
-                    allowedRoles={["teacher", "hod", "principal"]}
-                  >
-                    <TeacherAcademicManagement />
-                  </ProtectedRoute>
-                }
-              />
+ {/* Principal Routes */}
+ <Route path="/departments" element={<ProtectedLayout allowedRoles={["principal"]}><DepartmentsPage /></ProtectedLayout>} />
 
-              <Route
-                path="/performance"
-                element={
-                  <ProtectedRoute
-                    allowedRoles={["teacher", "hod", "principal"]}
-                  >
-                    <TeacherPerformance />
-                  </ProtectedRoute>
-                }
-              />
-
-              <Route
-                path="/teacher-reports"
-                element={
-                  <ProtectedRoute
-                    allowedRoles={["teacher", "hod", "principal"]}
-                  >
-                    <TeacherReports />
-                  </ProtectedRoute>
-                }
-              />
-
-              <Route
-                path="/alerts"
-                element={
-                  <ProtectedRoute
-                    allowedRoles={["teacher", "hod", "principal"]}
-                  >
-                    <TeacherAlerts />
-                  </ProtectedRoute>
-                }
-              />
-
-              <Route
-                path="/my-courses"
-                element={
-                  <ProtectedRoute allowedRoles={["teacher"]}>
-                    <MyCourses />
-                  </ProtectedRoute>
-                }
-              />
-
-              <Route
-                path="/quiz-generator"
-                element={
-                  <ProtectedRoute allowedRoles={["teacher", "hod", "principal"]}>
-                    <QuizGeneratorPage />
-                  </ProtectedRoute>
-                }
-              />
-
-              <Route
-                path="/class-management"
-                element={
-                  <ProtectedRoute allowedRoles={["hod"]}>
-                    <ClassManagementPage />
-                  </ProtectedRoute>
-                }
-              />
-
-              <Route
-                path="/departments"
-                element={
-                  <ProtectedRoute allowedRoles={["principal"]}>
-                    <DepartmentsPage />
-                  </ProtectedRoute>
-                }
-              />
-
-              <Route
-                path="/courses"
-                element={
-                  <ProtectedRoute allowedRoles={["student"]}>
-                    <Courses />
-                  </ProtectedRoute>
-                }
-              />
-
-              <Route
-                path="/quizzes"
-                element={
-                  <ProtectedRoute allowedRoles={["student"]}>
-                    <StudentQuizzesPage />
-                  </ProtectedRoute>
-                }
-              />
-
-              <Route
-                path="/attendance"
-                element={
-                  <ProtectedRoute allowedRoles={["student"]}>
-                    <StudentAttendanceDashboard />
-                  </ProtectedRoute>
-                }
-              />
-
-              <Route
-                path="/reports"
-                element={
-                  <ProtectedRoute allowedRoles={["student"]}>
-                    <Reports />
-                  </ProtectedRoute>
-                }
-              />
-            </Route>
-
-            {/* Redirects */}
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
-          </Routes>
-        </Router>
-      </AuthProvider>
-    </ThemeProvider>
-  );
+ {/* Redirects */}
+ <Route path="/" element={<Navigate to="/dashboard" replace />} />
+ <Route path="*" element={<Navigate to="/dashboard" replace />} />
+ </Routes>
+ </div>
+ </Router>
+ </AuthProvider>
+ </ThemeProvider>
+ );
 }
 
 export default App;

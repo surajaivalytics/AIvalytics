@@ -14,20 +14,34 @@ router.get("/leaderboard", authenticateToken, async (req, res) => {
     console.log("🏆 Fetching leaderboard for user:", currentUserId);
 
     // Fetch student users with quiz activity
-    const usersSnapshot = await db.collection(TABLES.USERS)
-      .where("role", "==", ROLES.STUDENT)
-      .orderBy("leaderboard_points", "desc")
-      .limit(parseInt(limit))
-      .get();
+    let usersSnapshot;
+    try {
+      usersSnapshot = await db.collection(TABLES.USERS)
+        .where("role", "==", ROLES.STUDENT)
+        .orderBy("leaderboard_points", "desc")
+        .limit(parseInt(limit))
+        .get();
+    } catch (dbError) {
+      // Check if it's a missing index error (Firestore error code 9: FAILED_PRECONDITION)
+      if (dbError.code === 9 || dbError.message.includes("requires an index")) {
+        console.warn("\n⚠️  MISSING FIRESTORE INDEX ⚠️");
+        console.warn("Please create the required composite index by clicking this link:");
+        console.warn(dbError.details || dbError.message.split("here: ")[1] || "Link not found in error context");
+        console.warn("Falling back to sample data temporarily...\n");
+        usersSnapshot = { empty: true, docs: [] };
+      } else {
+        throw dbError; // rethrow other errors
+      }
+    }
 
     if (usersSnapshot.empty) {
-      console.log("📝 No users found, returning sample leaderboard data");
+      console.log("📝 No users found or missing index, returning sample leaderboard data");
       // Sample data as fallback for development
       const sampleLeaderboard = [
         { id: "sample1", name: "Sarah Johnson", points: 450, quizCount: 12, averageScore: 92.5, highestScore: 98, overallPercentage: 92.5, rank: 1, isCurrentUser: currentUserId === "sample1" },
         { id: "sample2", name: "Michael Chen", points: 425, quizCount: 11, averageScore: 88.7, highestScore: 95, overallPercentage: 88.7, rank: 2, isCurrentUser: currentUserId === "sample2" },
         { id: "sample3", name: "Emma Rodriguez", points: 400, quizCount: 10, averageScore: 85.2, highestScore: 92, overallPercentage: 85.2, rank: 3, isCurrentUser: currentUserId === "sample3" },
-        { id: "dev4", name: "You", points: 375, quizCount: 9, averageScore: 79.8, highestScore: 87, overallPercentage: 79.8, rank: 4, isCurrentUser: true }
+        { id: currentUserId, name: "You", points: 375, quizCount: 9, averageScore: 79.8, highestScore: 87, overallPercentage: 79.8, rank: 4, isCurrentUser: true }
       ].slice(0, parseInt(limit));
 
       return res.json({
@@ -273,22 +287,19 @@ router.get("/teacher", authenticateToken, async (req, res) => {
 
     const courseIds = teacherCourses.map(c => c.id);
 
-    // Get quizzes created by teacher (MCQs for their courses)
+    // Get quizzes created by teacher
     let teacherQuizzes = [];
-    if (courseIds.length > 0) {
-      // Firestore 'in' operator limit is 10, but let's assume standard usage or handle batching if needed
-      // For simplicity, handle up to 10 courses or loop
-      const quizzesSnapshot = await db.collection(TABLES.QUIZZES)
-        .where("course_id", "in", courseIds.slice(0, 10))
-        .orderBy("created_at", "desc")
-        .get();
-      
-      teacherQuizzes = quizzesSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        course_name: teacherCourses.find(c => c.id === doc.data().course_id)?.name || "Unknown"
-      }));
-    }
+    const quizzesSnapshot = await db.collection(TABLES.QUIZZES)
+      .where("created_by", "==", userId)
+      .where("deleted_at", "==", null)
+      .orderBy("created_at", "desc")
+      .get();
+    
+    teacherQuizzes = quizzesSnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      course_name: teacherCourses.find(c => c.id === doc.data().course_id)?.name || "Unknown"
+    }));
 
     // Get student performance data (scores for teacher's quizzes)
     const quizIds = teacherQuizzes.map(q => q.id);
@@ -300,8 +311,6 @@ router.get("/teacher", authenticateToken, async (req, res) => {
         const batchIds = quizIds.slice(i, i + 10);
         const scoresSnapshot = await db.collection(TABLES.SCORES)
           .where("quiz_id", "in", batchIds)
-          .orderBy("completed_at", "desc")
-          .limit(100)
           .get();
         
         const batchScores = await Promise.all(scoresSnapshot.docs.map(async doc => {
@@ -319,11 +328,48 @@ router.get("/teacher", authenticateToken, async (req, res) => {
         }));
         studentScores = [...studentScores, ...batchScores];
       }
+      
+      // Sort student scores locally so recentActivity is correct
+      studentScores.sort((a, b) => {
+        const timeA = new Date(a.completed_at || a.created_at).getTime();
+        const timeB = new Date(b.completed_at || b.created_at).getTime();
+        return timeB - timeA;
+      });
     }
 
     // Calculate statistics
+    
+    // Get actual enrolled students count
+    let enrolledStudentsSet = new Set();
+    let courseEnrollments = {}; // course_name -> Set of student string IDs
+    
+    if (courseIds.length > 0) {
+      // Fetch in batches of 10 for 'in' query limit
+      for (let i = 0; i < courseIds.length; i += 10) {
+        const batchIds = courseIds.slice(i, i + 10);
+        const enrollmentsSnapshot = await db.collection(TABLES.USER_COURSES)
+          .where("course_id", "in", batchIds)
+          .get();
+          
+        enrollmentsSnapshot.docs.forEach(doc => {
+          const data = doc.data();
+          const studentId = data.user_id || data.student_id;
+          if (studentId) {
+            enrolledStudentsSet.add(studentId);
+            const courseName = teacherCourses.find(c => c.id === data.course_id)?.name || "Unknown";
+            if (!courseEnrollments[courseName]) {
+              courseEnrollments[courseName] = new Set();
+            }
+            courseEnrollments[courseName].add(studentId);
+          }
+        });
+      }
+    }
+    
+    // Fallback to quiz attempt students if no enrollments found mapping
     const totalStudentsSet = new Set(studentScores.map(s => s.user_id));
-    const totalStudents = totalStudentsSet.size;
+    const totalStudents = enrolledStudentsSet.size > 0 ? enrolledStudentsSet.size : totalStudentsSet.size;
+
     const averageClassScore = studentScores.length > 0
       ? studentScores.reduce((sum, s) => sum + (s.percentage || 0), 0) / studentScores.length
       : 0;
@@ -342,21 +388,33 @@ router.get("/teacher", authenticateToken, async (req, res) => {
 
     // Course performance aggregation
     const coursePerformance = {};
+    
+    // Initialize with all teacher courses to ensure courses with no attempts still appear
+    teacherCourses.forEach(c => {
+      coursePerformance[c.name] = { 
+        attempts: 0, 
+        totalScore: 0, 
+        students: courseEnrollments[c.name] ? courseEnrollments[c.name].size : 0 
+      };
+    });
+
     studentScores.forEach(s => {
       const course = s.course_name;
       if (!coursePerformance[course]) {
-        coursePerformance[course] = { attempts: 0, totalScore: 0, students: new Set() };
+        coursePerformance[course] = { attempts: 0, totalScore: 0, students: 0 };
       }
       coursePerformance[course].attempts++;
       coursePerformance[course].totalScore += (s.percentage || 0);
-      coursePerformance[course].students.add(s.user_id);
     });
 
     const courseStats = Object.keys(coursePerformance).map(course => {
       const data = coursePerformance[course];
+      // Update student count from quiz attempts if it's 0 (fallback for legacy or manual data)
+      const finalStudents = data.students > 0 ? data.students : new Set(studentScores.filter(s => s.course_name === course).map(s => s.user_id)).size;
+      
       return {
         course,
-        students: data.students.size,
+        students: finalStudents,
         attempts: data.attempts,
         averageScore: data.attempts > 0 ? data.totalScore / data.attempts : 0
       };

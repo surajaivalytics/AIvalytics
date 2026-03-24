@@ -31,8 +31,8 @@
   --color-secondary-gold: #AD9660;
 
   /* Art Deco Accents */
-  --accent-gold-gradient: linear-gradient(135deg, #AD9660 0%, #C8B176 50%, #AD9660 100%);
-  --accent-navy-gradient: linear-gradient(135deg, #1E2A47 0%, #2A3754 50%, #1E2A47 100%);
+  --accent-gold-gradient: #AD9660;
+  --accent-navy-gradient: #1E2A47;
 }
 
 body {
@@ -61,4 +61,19 @@ code {
 
 .card {
   @apply bg-white shadow-lg rounded-lg p-6 border border-gray-200;
+}
+
+@layer utilities {
+  .text-muted-foreground {
+    @apply text-gray-500 dark:text-gray-400;
+  }
+  .text-muted {
+    @apply text-gray-400 dark:text-gray-500;
+  }
+  .bg-muted {
+    @apply bg-gray-100 dark:bg-gray-800;
+  }
+  .bg-muted-foreground {
+    @apply bg-gray-500 dark:bg-gray-400;
+  }
 }

@@ -580,6 +580,7 @@ const getTeacherQuizzes = async (req, res) => {
   try {
     const userId = req.user.id;
     const userRole = req.user.role;
+    const { page = 1, limit = 10, course_id } = req.query;
 
     if (!["teacher", "hod", "principal"].includes(userRole)) {
       return res.status(HTTP_STATUS.FORBIDDEN).json({
@@ -588,7 +589,7 @@ const getTeacherQuizzes = async (req, res) => {
       });
     }
 
-    const { data: result, totalQuizzes } = await mcqService.getTeacherQuizzes(userId, userRole, {
+    const { quizzes, totalQuizzes, pagination } = await mcqService.getTeacherQuizzes(userId, userRole, {
       page: parseInt(page),
       limit: parseInt(limit),
       course_id,
@@ -597,8 +598,9 @@ const getTeacherQuizzes = async (req, res) => {
     res.json({
       success: true,
       data: {
-        quizzes: result,
-        totalQuizzes
+        quizzes,
+        totalQuizzes,
+        pagination
       },
     });
   } catch (error) {
@@ -1282,9 +1284,11 @@ const generateMCQFromText = async (req, res) => {
       num_questions = 10,
       max_score = 100,
       topics = "",
-      gemini_api_key,
       course_id,
     } = req.body;
+
+    // Use Gemini API Key from environment variables
+    const gemini_api_key = process.env.GEMINI_API_KEY;
 
     // Auto-generate quiz name from timestamp
     const quiz_name = req.body.quiz_name ||
@@ -1294,7 +1298,7 @@ const generateMCQFromText = async (req, res) => {
       return res.status(400).json({ success: false, message: "Lecture content must be at least 20 characters" });
     }
     if (!gemini_api_key || !gemini_api_key.trim()) {
-      return res.status(400).json({ success: false, message: "Gemini API key is required. Get yours at https://aistudio.google.com/" });
+      return res.status(400).json({ success: false, message: "Gemini API key is not configured on the server. Please check the backend .env" });
     }
 
     const userId = req.user.id;
@@ -1354,8 +1358,10 @@ const generateMCQFromFile = async (req, res) => {
       num_questions = 10,
       max_score = 100,
       topics = "",
-      gemini_api_key,
     } = req.body;
+
+    // Use Gemini API Key from environment variables
+    const gemini_api_key = process.env.GEMINI_API_KEY;
 
     const quiz_name =
       req.body.quiz_name ||
@@ -1366,7 +1372,7 @@ const generateMCQFromFile = async (req, res) => {
     }
     if (!gemini_api_key || !gemini_api_key.trim()) {
       if (uploadedFilePath) fs.unlinkSync(uploadedFilePath);
-      return res.status(400).json({ success: false, message: "Gemini API key is required. Get yours at https://aistudio.google.com/" });
+      return res.status(400).json({ success: false, message: "Gemini API key is not configured on the server. Please check the backend .env" });
     }
 
     const userId = req.user.id;

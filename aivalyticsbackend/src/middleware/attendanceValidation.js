@@ -7,8 +7,7 @@ const validateCreateSession = [
   body("course_id")
     .notEmpty()
     .withMessage("Course ID is required")
-    .isUUID()
-    .withMessage("Course ID must be a valid UUID"),
+    .isString(),
 
   body("session_date")
     .notEmpty()
@@ -52,8 +51,7 @@ const validateMarkAttendance = [
   body("session_id")
     .notEmpty()
     .withMessage("Session ID is required")
-    .isUUID()
-    .withMessage("Session ID must be a valid UUID"),
+    .isString(),
 
   body("attendance_records")
     .isArray({ min: 1 })
@@ -62,8 +60,7 @@ const validateMarkAttendance = [
   body("attendance_records.*.student_id")
     .notEmpty()
     .withMessage("Student ID is required for each record")
-    .isUUID()
-    .withMessage("Student ID must be a valid UUID"),
+    .isString(),
 
   body("attendance_records.*.attendance_status")
     .isIn(["present", "absent", "late", "excused"])
@@ -88,13 +85,11 @@ const validateMarkAttendance = [
 const validateGetStudentAttendance = [
   query("student_id")
     .optional()
-    .isUUID()
-    .withMessage("Student ID must be a valid UUID"),
+    .isString(),
 
   query("course_id")
     .optional()
-    .isUUID()
-    .withMessage("Course ID must be a valid UUID"),
+    .isString(),
 
   query("start_date")
     .optional()
@@ -123,13 +118,11 @@ const validateGetStudentAttendance = [
 const validateGetAnalytics = [
   query("course_id")
     .optional()
-    .isUUID()
-    .withMessage("Course ID must be a valid UUID"),
+    .isString(),
 
   query("class_id")
     .optional()
-    .isUUID()
-    .withMessage("Class ID must be a valid UUID"),
+    .isString(),
 
   query("start_date")
     .optional()
@@ -149,8 +142,7 @@ const validateUpdateAttendance = [
   param("attendance_id")
     .notEmpty()
     .withMessage("Attendance ID is required")
-    .isUUID()
-    .withMessage("Attendance ID must be a valid UUID"),
+    .isString(),
 
   body("attendance_status")
     .optional()
@@ -177,8 +169,7 @@ const validateExcuseRequest = [
   body("attendance_id")
     .notEmpty()
     .withMessage("Attendance ID is required")
-    .isUUID()
-    .withMessage("Attendance ID must be a valid UUID"),
+    .isString(),
 
   body("excuse_reason")
     .notEmpty()

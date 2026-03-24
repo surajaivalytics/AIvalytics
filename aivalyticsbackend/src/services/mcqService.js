@@ -50,12 +50,14 @@ class MCQService {
 
       const quizRef = await db.collection(TABLES.QUIZZES).add(docData);
       
-      // Update course's quiz_ids array
-      const courseRef = db.collection(TABLES.COURSES).doc(course_id);
-      await courseRef.update({
-        quiz_ids: admin.firestore.FieldValue.arrayUnion(quizRef.id),
-        updated_at: admin.firestore.FieldValue.serverTimestamp()
-      });
+      // Update course's quiz_ids array if course_id is provided
+      if (course_id) {
+        const courseRef = db.collection(TABLES.COURSES).doc(course_id);
+        await courseRef.update({
+          quiz_ids: admin.firestore.FieldValue.arrayUnion(quizRef.id),
+          updated_at: admin.firestore.FieldValue.serverTimestamp()
+        });
+      }
 
       return { id: quizRef.id, ...docData };
     } catch (error) {
@@ -117,27 +119,37 @@ class MCQService {
         }
       }
 
-      let query = db.collection(TABLES.QUIZZES)
+      // Query quizzes by course without composite fields to avoid index errors
+      const query = db.collection(TABLES.QUIZZES)
         .where("course_id", "==", courseId)
         .where("deleted_at", "==", null);
 
-      // For students, only show active quizzes
-      if (role === "student") {
-        query = query.where("status", "==", "active");
-      }
+      const snapshot = await query.get();
+      let quizzes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-      const snapshot = await query.orderBy("created_at", "desc").get();
-      const quizzes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      // Soft sort by created_at in memory
+      quizzes.sort((a, b) => {
+        const tA = a.created_at ? (a.created_at.toMillis ? a.created_at.toMillis() : new Date(a.created_at).getTime()) : 0;
+        const tB = b.created_at ? (b.created_at.toMillis ? b.created_at.toMillis() : new Date(b.created_at).getTime()) : 0;
+        return tB - tA; // descending
+      });
 
-      // For students, filter out quizzes they have already taken
       if (role === "student") {
+        // Only show active quizzes
+        quizzes = quizzes.filter(q => q.status === "active");
+
+        // Filter out quizzes they have already taken
         const scoresSnapshot = await db.collection(TABLES.SCORES)
           .where("user_id", "==", userId)
           .where("deleted_at", "==", null)
           .get();
 
         const takenQuizIds = scoresSnapshot.docs.map(doc => doc.data().quiz_id);
-        return quizzes.filter(quiz => !takenQuizIds.includes(quiz.id));
+        quizzes = quizzes.filter(quiz => !takenQuizIds.includes(quiz.id));
+      } else if (role === "teacher") {
+        // For teacher, they only see quizzes they created OR maybe all for the course depending on requirements
+        // We'll filter to their own quizzes usually
+        quizzes = quizzes.filter(q => q.created_by === userId);
       }
 
       return quizzes;
@@ -600,24 +612,53 @@ class MCQService {
     }
   }
 
-  async generateMCQWithGemini(content, numQuestions, maxScore, topics, apiKey) {
+  async generateMCQWithGemini(content, numQuestions, maxScore, topics) {
     try {
-      const genAI = new GoogleGenerativeAI(apiKey.trim());
-      const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-      const topicsInstruction = topics ? `Focus specifically on these topics: ${topics}.` : "";
-      const prompt = `Generate exactly ${numQuestions} MCQs from this content: ${content.substring(0, 10000)}... ${topicsInstruction}`;
+      const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY.trim());
+      const model = genAI.getGenerativeModel({
+        model: "gemini-3.1-pro-preview",
+        generationConfig: { responseMimeType: "application/json" }
+      });
+      const topicsInstruction = topics ? `Focus specifically on these topics: ${topics}. ` : "";
+      
+      const prompt = `You are an expert educator. Generate exactly ${numQuestions} multiple-choice questions from this content: ${content.substring(0, 10000)}... 
+      ${topicsInstruction}
+      
+      You MUST respond ONLY with a valid JSON array. Each object in the array must have exactly this structure:
+      {
+        "question": "The question text",
+        "options": ["Option A", "Option B", "Option C", "Option D"],
+        "correct_answer": 0, // integer index of the correct option (0-3)
+        "explanation": "Brief explanation of why the answer is correct",
+        "difficulty": "Easy,Medium,Hard",
+        "topic": "The specific topic"
+      }`;
 
       const result = await model.generateContent(prompt);
       const text = result.response.text().trim();
 
       let jsonText = text;
+      // Handle edge cases where the model still prepends/appends markdown block backticks
       const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
       if (fenceMatch) jsonText = fenceMatch[1];
-
+      
+      // If the entire text wasn't extracted by fenceMatch, try matching an array
       const arrayMatch = jsonText.match(/\[[\s\S]*\]/);
-      if (!arrayMatch) throw new Error("No valid JSON array in Gemini response");
+      if (arrayMatch) {
+         jsonText = arrayMatch[0];
+      }
 
-      const questions = JSON.parse(arrayMatch[0]);
+      let questions;
+      try {
+        questions = JSON.parse(jsonText);
+      } catch (parseError) {
+        throw new Error(`Failed to parse JSON: ${parseError.message}. Response was: ${text.substring(0, 150)}...`);
+      }
+      
+      if (!Array.isArray(questions)) {
+        throw new Error("Response is not a valid JSON array. Received: " + typeof questions);
+      }
+
       return questions.map((q, idx) => ({ ...q, id: idx }));
     } catch (error) {
       logger.error(`MCQ generation with Gemini error: ${error.message}`);
@@ -626,9 +667,9 @@ class MCQService {
   }
 
   async generateMCQFromText(params) {
-    const { userId, userRole, quiz_name, course_id, lecture_content, num_questions, max_score, topics, gemini_api_key } = params;
+    const { userId, userRole, quiz_name, course_id, lecture_content, num_questions, max_score, topics } = params;
     
-    const generatedQuestions = await this.generateMCQWithGemini(lecture_content, num_questions, max_score, topics, gemini_api_key);
+    const generatedQuestions = await this.generateMCQWithGemini(lecture_content, num_questions, max_score, topics);
     
     if (generatedQuestions.length < 3) {
       throw new Error(`Only ${generatedQuestions.length} questions generated. Provide more detailed content.`);
@@ -653,12 +694,12 @@ class MCQService {
   }
 
   async generateMCQFromFile(params) {
-    const { userId, userRole, quiz_name, course_id, filePath, fileMimetype, num_questions, max_score, topics, gemini_api_key } = params;
+    const { userId, userRole, quiz_name, course_id, filePath, fileMimetype, num_questions, max_score, topics } = params;
     
     try {
       const extractedContent = await this.extractTextFromFile(filePath, fileMimetype);
       
-      const generatedQuestions = await this.generateMCQWithGemini(extractedContent, num_questions, max_score, topics, gemini_api_key);
+      const generatedQuestions = await this.generateMCQWithGemini(extractedContent, num_questions, max_score, topics);
       
       if (generatedQuestions.length < 3) {
         throw new Error(`Only ${generatedQuestions.length} questions generated. Provide more detailed content.`);
@@ -688,6 +729,68 @@ class MCQService {
       throw error;
     }
   }
+
+  /**
+   * Get teacher's quizzes
+   */
+  async getTeacherQuizzes(userId, userRole, options = {}) {
+    try {
+      const { page = 1, limit = 10, search = "" } = options;
+      
+      let query = db.collection(TABLES.QUIZZES).where("deleted_at", "==", null);
+
+      if (userRole === "teacher") {
+        query = query.where("created_by", "==", userId);
+      }
+
+      const snapshot = await query.orderBy("created_at", "desc").get();
+      let quizzes = await Promise.all(snapshot.docs.map(async doc => {
+        const data = doc.data();
+        
+        let course = null;
+        if (data.course_id) {
+          const courseDoc = await db.collection(TABLES.COURSES).doc(data.course_id).get();
+          if (courseDoc.exists) {
+            course = {
+              id: courseDoc.id,
+              name: courseDoc.data().name
+            };
+          }
+        }
+
+        return {
+          id: doc.id,
+          ...data,
+          course
+        };
+      }));
+
+      if (search) {
+        const lowerSearch = search.toLowerCase();
+        quizzes = quizzes.filter(q => 
+          q.name.toLowerCase().includes(lowerSearch)
+        );
+      }
+
+      const total = quizzes.length;
+      return {
+        success: true,
+        quizzes: quizzes.slice((page - 1) * limit, page * limit),
+        totalQuizzes: total,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        }
+      };
+    } catch (error) {
+      logger.error(`Get teacher quizzes error: ${error.message}`);
+      throw error;
+    }
+  }
+
+
 }
 
 const mcqService = new MCQService();

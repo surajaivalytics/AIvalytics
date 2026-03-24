@@ -1,0 +1,11 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default rule to allow read/write for all authenticated users
+    // You can restrict these later based on roles (teachers/students)
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
