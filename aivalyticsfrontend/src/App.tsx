@@ -30,6 +30,16 @@ import DepartmentsPage from "./pages/DepartmentsPage";
 import StudentAttendancePage from "./pages/StudentAttendancePage";
 import StudentAttendanceDashboard from "./pages/StudentAttendanceDashboard";
 
+// HOD Portal Pages
+import HodDashboard from "./pages/hod/HodDashboard";
+import HodFaculty from "./pages/hod/HodFaculty";
+import HodCourses from "./pages/hod/HodCourses";
+import HodReports from "./pages/hod/HodReports";
+import HodPerformance from "./pages/hod/HodPerformance";
+import HodAlerts from "./pages/hod/HodAlerts";
+import HodGenerateMCQs from "./pages/hod/HodGenerateMCQs";
+import HodGenerateReports from "./pages/hod/HodGenerateReports";
+
 function App() {
   return (
     <ThemeProvider>
@@ -177,12 +187,36 @@ function App() {
               />
 
               <Route
-                path="/hod/*"
-                element={
-                  <ProtectedRoute allowedRoles={["hod", "principal"]}>
-                    <Dashboard />
-                  </ProtectedRoute>
-                }
+                path="/hod/dashboard"
+                element={<HodDashboard />}
+              />
+              <Route
+                path="/hod/faculty"
+                element={<HodFaculty />}
+              />
+              <Route
+                path="/hod/courses"
+                element={<HodCourses />}
+              />
+              <Route
+                path="/hod/reports"
+                element={<HodReports />}
+              />
+              <Route
+                path="/hod/performance"
+                element={<HodPerformance />}
+              />
+              <Route
+                path="/hod/alerts"
+                element={<HodAlerts />}
+              />
+              <Route
+                path="/hod/ai/mcqs"
+                element={<HodGenerateMCQs />}
+              />
+              <Route
+                path="/hod/ai/reports"
+                element={<HodGenerateReports />}
               />
 
               <Route
