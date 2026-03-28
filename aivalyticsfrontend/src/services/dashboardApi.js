@@ -1,5 +1,5 @@
 const API_BASE_URL =
- process.env.REACT_APP_API_BASE_URL || (typeof import.meta !== "undefined" && typeof import.meta.env !== "undefined" && import.meta.env.VITE_API_BASE_URL) || "http://localhost:5000/api";
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api";
 
 class DashboardService {
  constructor() {

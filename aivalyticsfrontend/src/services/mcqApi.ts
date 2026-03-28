@@ -204,7 +204,7 @@ class MCQService {
  private baseURL: string;
 
  constructor() {
- this.baseURL = process.env.REACT_APP_API_BASE_URL || (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_API_BASE_URL) || 'http://localhost:5000/api';
+ this.baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
  }
 
  private getAuthHeaders() {
@@ -582,7 +582,7 @@ export const getDetailedExplanation = async (
 ): Promise<{ explanation: string }> => {
  const token = localStorage.getItem("accessToken");
  const response = await axios.post(
- `${process.env.REACT_APP_API_BASE_URL || (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_API_BASE_URL) || "http://localhost:5000/api"}/mcq/explain`,
+      `${import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api"}/mcq/explain`,
  { explanation },
  {
  headers: {

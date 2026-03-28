@@ -15,6 +15,9 @@ import {
  CalendarIcon,
  QuestionMarkCircleIcon,
  BellIcon,
+  UsersIcon,
+
+  CloudArrowUpIcon,
 } from "@heroicons/react/24/outline";
 import { Menu, Transition } from "@headlessui/react";
 import { useAuth } from "../contexts/AuthContext";
@@ -136,7 +139,7 @@ const UserProfile = memo(
  className="h-10 w-10 flex-shrink-0 rounded-full object-cover ring-2 ring-transparent group-hover:ring-primary-500/30 transition-all duration-300"
  referrerPolicy="no-referrer"
  onError={(e) => {
- const target = e.target;
+ const target = e.target as HTMLImageElement;
  if (!target.src.includes('ui-avatars.com')) {
  target.src = `https://ui-avatars.com/api/?name=${user?.username || "User"}&background=random`;
  }
@@ -247,8 +250,14 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
  // Teacher specific navigation
  if (user?.role === "teacher") {
- navItems.push({
- name: "Performance",
+    navItems.push({
+      name: "Students",
+      href: "/students",
+      icon: UsersIcon,
+      current: location.pathname.startsWith("/students"),
+    });
+    navItems.push({
+      name: "Performance",
  href: "/performance",
  icon: ChartBarIcon,
  current: location.pathname === "/performance",
@@ -278,6 +287,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
  if (user?.role === "teacher") {
  navItems.push({ name: "My Courses", href: "/my-courses", icon: BookOpenIcon, current: location.pathname === "/my-courses" });
+ navItems.push({ name: "Upload Content", href: "/upload-content", icon: CloudArrowUpIcon, current: location.pathname === "/upload-content" });
  }
 
  return navItems;

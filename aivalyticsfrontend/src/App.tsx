@@ -33,7 +33,9 @@ import TeacherAcademicManagement from "./pages/teacher/TeacherAcademicManagement
 import TeacherPerformance from "./pages/teacher/TeacherPerformance";
 import TeacherReports from "./pages/teacher/TeacherReports";
 import TeacherAlerts from "./pages/teacher/TeacherAlerts";
+import TeacherStudentsPage from "./pages/teacher/TeacherStudentsPage";
 import AcademicManagement from "./pages/AcademicManagement/AcademicManagement";
+import TeacherUploadContent from "./pages/teacher/TeacherUploadContent";
 
 const ProtectedLayout = ({ children, allowedRoles }: { children: React.ReactNode, allowedRoles?: string[] }) => (
  <ProtectedRoute allowedRoles={allowedRoles}>
@@ -73,6 +75,7 @@ function App() {
  {/* Teacher/HOD/Principal Routes */}
  <Route path="/academic-management/*" element={<ProtectedLayout allowedRoles={["teacher", "hod", "principal"]}><AcademicManagement /></ProtectedLayout>} />
  <Route path="/academic-management" element={<ProtectedLayout allowedRoles={["teacher", "hod", "principal"]}><TeacherAcademicManagement /></ProtectedLayout>} />
+  <Route path="/students" element={<ProtectedLayout allowedRoles={["teacher", "hod", "principal"]}><TeacherStudentsPage /></ProtectedLayout>} />
  <Route path="/performance" element={<ProtectedLayout allowedRoles={["teacher", "hod", "principal"]}><TeacherPerformance /></ProtectedLayout>} />
  <Route path="/teacher-reports" element={<ProtectedLayout allowedRoles={["teacher", "hod", "principal"]}><TeacherReports /></ProtectedLayout>} />
  <Route path="/alerts" element={<ProtectedLayout allowedRoles={["teacher", "hod", "principal"]}><TeacherAlerts /></ProtectedLayout>} />
@@ -80,6 +83,7 @@ function App() {
  
  {/* Teacher Specific Routes */}
  <Route path="/my-courses" element={<ProtectedLayout allowedRoles={["teacher"]}><MyCourses /></ProtectedLayout>} />
+ <Route path="/upload-content" element={<ProtectedLayout allowedRoles={["teacher", "hod", "principal"]}><TeacherUploadContent /></ProtectedLayout>} />
 
  {/* HOD Routes */}
  <Route path="/class-management" element={<ProtectedLayout allowedRoles={["hod"]}><ClassManagementPage /></ProtectedLayout>} />

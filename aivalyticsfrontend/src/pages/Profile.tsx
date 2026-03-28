@@ -1,823 +1,690 @@
 import React, { useState, useEffect } from "react";
 import { toast } from "react-hot-toast";
 import {
- UserIcon,
- PencilIcon,
- CheckIcon,
- XMarkIcon,
- EyeIcon,
- EyeSlashIcon,
- KeyIcon,
- IdentificationIcon,
- CalendarIcon,
- ShieldCheckIcon,
- ClockIcon,
- LockClosedIcon,
- BuildingLibraryIcon,
+  UserIcon,
+  PencilIcon,
+  CheckIcon,
+  XMarkIcon,
+  KeyIcon,
+  LockClosedIcon,
+  IdentificationIcon,
+  ArrowLeftIcon,
+  EnvelopeIcon,
+  PhoneIcon,
+  BuildingOfficeIcon,
+  DocumentTextIcon,
+  GlobeAltIcon,
+  TrophyIcon,
+  ClockIcon,
+  ArrowTrendingUpIcon
 } from "@heroicons/react/24/outline";
 import { useAuth } from "../contexts/AuthContext";
 import { useTheme } from "../contexts/ThemeContext";
 import { getThemedClasses } from "../utils/themeUtils";
 import apiService from "../services/api";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
+
+// Standardizing missing icons
+import { MapPin as MapPinIcon, Award as AwardIcon } from "lucide-react"; 
 
 interface ProfileData {
- id: string;
- username: string;
- role: string;
- rollNumber: string;
- createdAt?: string;
- updatedAt?: string;
- email?: string;
- age?: number;
- profilePic?: string;
- class?: {
- id: string;
- name: string;
- department?: string;
- };
+  id: string;
+  username: string;
+  role: string;
+  rollNumber: string;
+  createdAt?: string;
+  updatedAt?: string;
+  email?: string;
+  age?: number;
+  profilePic?: string;
+  class?: {
+    id: string;
+    name: string;
+    department?: string;
+  };
 }
 
 interface UpdateProfileData {
- username: string;
- rollNumber: string;
+  username: string;
+  rollNumber: string;
 }
 
 interface ChangePasswordData {
- currentPassword: string;
- newPassword: string;
- confirmPassword: string;
+  currentPassword: string;
+  newPassword: string;
+  confirmPassword: string;
 }
 
 const Profile: React.FC = () => {
- const { user } = useAuth();
- const { isDark } = useTheme();
- const [profile, setProfile] = useState<ProfileData | null>(null);
- const [loading, setLoading] = useState(true);
- const [editing, setEditing] = useState(false);
- const [changingPassword, setChangingPassword] = useState(false);
- const [showCurrentPassword, setShowCurrentPassword] = useState(false);
- const [showNewPassword, setShowNewPassword] = useState(false);
- const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const { user } = useAuth();
+  const { isDark } = useTheme();
+  const [profile, setProfile] = useState<ProfileData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [activeTab, setActiveTab] = useState("Overview");
+  
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
- const [editForm, setEditForm] = useState<UpdateProfileData>({
- username: "",
- rollNumber: "",
- });
+  const [editForm, setEditForm] = useState<UpdateProfileData>({
+    username: "",
+    rollNumber: "",
+  });
 
- const [passwordForm, setPasswordForm] = useState<ChangePasswordData>({
- currentPassword: "",
- newPassword: "",
- confirmPassword: "",
- });
+  const [passwordForm, setPasswordForm] = useState<ChangePasswordData>({
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: "",
+  });
 
- const [errors, setErrors] = useState<Record<string, string>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
- const navigate = useNavigate();
+  const navigate = useNavigate();
 
- useEffect(() => {
- // Check if user is authenticated
- const token = localStorage.getItem("accessToken");
- if (!token && !user) {
- console.log("No authentication token found, redirecting to login");
- navigate("/login");
- return;
- }
+  useEffect(() => {
+    const token = localStorage.getItem("accessToken");
+    if (!token && !user) {
+      navigate("/login");
+      return;
+    }
+    if (user || token) {
+      fetchProfile();
+    } else {
+      setLoading(false);
+    }
+  }, [user, navigate]);
 
- // Only fetch profile if user is authenticated
- if (user || token) {
- fetchProfile();
- } else {
- console.log("No user or token found, skipping profile fetch");
- setLoading(false);
- }
- }, [user, navigate]);
+  const fetchProfile = async (retryCount = 0) => {
+    try {
+      setLoading(true);
+      const response = await apiService.getProfile();
+      if (response.success && response.user) {
+        setProfile(response.user);
+        setEditForm({
+          username: response.user.username || "",
+          rollNumber: response.user.rollNumber || "",
+        });
+      } else {
+        toast.error("Failed to load profile data");
+      }
+    } catch (error: any) {
+      if (error.response?.status === 401) {
+        toast.error("Session expired or invalid. Please refresh.");
+      } else if (error.response?.status >= 500 && retryCount < 2) {
+        setTimeout(() => fetchProfile(retryCount + 1), 1000);
+        return;
+      } else {
+        toast.error("Failed to load profile data");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
- const fetchProfile = async (retryCount = 0) => {
- try {
- setLoading(true);
- const response = await apiService.getProfile();
- if (response.success && response.user) {
- setProfile(response.user);
- setEditForm({
- username: response.user.username || "",
- rollNumber: response.user.rollNumber || "",
- });
- } else {
- toast.error("Failed to load profile data - invalid response");
- }
- } catch (error: any) {
- if (error.response?.status === 401) {
- toast.error("Session expired or invalid. Please refresh.");
- } else if (error.response?.status >= 500 && retryCount < 2) {
- setTimeout(() => fetchProfile(retryCount + 1), 1000);
- return;
- } else {
- toast.error("Failed to load profile data");
- }
- } finally {
- setLoading(false);
- }
- };
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrors({});
+    const newErrors: Record<string, string> = {};
+    if (!editForm.username.trim()) newErrors.username = "Username is required";
+    if (!editForm.rollNumber.trim()) newErrors.rollNumber = "Roll number is required";
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
+    try {
+      setLoading(true);
+      const response = await apiService.updateProfile(editForm);
+      if (response.success) {
+        await fetchProfile();
+        setEditing(false);
+        toast.success("Profile updated successfully");
+      } else {
+        throw new Error(response.message || "Failed to update profile");
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Update failed");
+    } finally {
+      setLoading(false);
+    }
+  };
 
- const handleEditSubmit = async (e: React.FormEvent) => {
- e.preventDefault();
- setErrors({});
+  const handlePasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrors({});
+    const newErrors: Record<string, string> = {};
+    if (!passwordForm.currentPassword) newErrors.currentPassword = "Required";
+    if (!passwordForm.newPassword) newErrors.newPassword = "Required";
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) newErrors.confirmPassword = "Passwords do not match";
+    if (passwordForm.newPassword.length < 8) newErrors.newPassword = "At least 8 characters";
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
+    try {
+      setLoading(true);
+      const response = await apiService.changePassword({
+        currentPassword: passwordForm.currentPassword,
+        newPassword: passwordForm.newPassword,
+        confirmPassword: passwordForm.confirmPassword,
+      });
+      if (response.success) {
+        setChangingPassword(false);
+        setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
+        toast.success("Password changed successfully");
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Failed to change password");
+    } finally {
+      setLoading(false);
+    }
+  };
 
- const newErrors: Record<string, string> = {};
- if (!editForm.username.trim()) {
- newErrors.username = "Username is required";
- }
- if (!editForm.rollNumber.trim()) {
- newErrors.rollNumber = "Roll number is required";
- }
+  if (loading && !profile) {
+    return (
+      <div className={`font-poppins min-h-screen flex justify-center items-center ${getThemedClasses(isDark, "bg-gray-50", "bg-gray-900")}`}>
+        <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary border-t-transparent"></div>
+      </div>
+    );
+  }
 
- if (Object.keys(newErrors).length > 0) {
- setErrors(newErrors);
- return;
- }
+  const token = localStorage.getItem("accessToken");
+  if (!token && !user) return null;
 
- try {
- setLoading(true);
- const response = await apiService.updateProfile(editForm);
+  // Real or Display Mocks
+  const displayName = profile?.username || "Alex Thompson";
+  const title = profile?.role ? profile.role.charAt(0).toUpperCase() + profile.role.slice(1) : "Associate Professor";
+  const department = profile?.class?.department || "Computer Science";
+  const email = profile?.email || "teacher@example.com";
+  
+  // Specific mock elements per user request
+  const experience = "8 years Experience";
+  const phone = "+1 (555) 123-4567";
+  const room = "Room 204, Engineering Block";
+  const teachingRating = "4.7/5.0";
 
- if (response.success) {
- await fetchProfile();
- setEditing(false);
- toast.success("Profile updated successfully");
- } else {
- throw new Error(response.message || "Failed to update profile");
- }
- } catch (error: any) {
- let errorMessage = "Failed to update profile";
- if (error.response?.status === 401) {
- errorMessage = "Authentication failed. Token may be invalid.";
- } else if (error.response?.status === 409) {
- errorMessage =
- error.response?.data?.message ||
- "Username or roll number already exists";
- } else if (error.response?.data?.message) {
- errorMessage = error.response.data.message;
- } else if (error.message) {
- errorMessage = error.message;
- }
- toast.error(errorMessage);
+  const mockResearch = {
+    publications: [
+      { id: 1, title: 'Advanced Machine Learning Techniques in Educational Analytics', source: 'Journal of Educational Technology (2024)', status: 'Published' },
+      { id: 2, title: 'Predictive Models for Student Performance Assessment', source: 'IEEE Transactions on Education (2023)', status: 'Published' },
+      { id: 3, title: 'AI-Driven Personalized Learning Pathways', source: 'Educational AI Conference (2024)', status: 'Under Review' },
+    ],
+    projects: [
+      { id: 1, name: 'Smart Campus Initiative', year: '2023-2025', status: 'Active', amount: '$150,000' },
+      { id: 2, name: 'Student Analytics Platform', year: '2022-2023', status: 'Completed', amount: '$75,000' },
+    ],
+    grants: [
+      { id: 1, name: 'NSF Educational Innovation Grant', amount: '$200,000', year: '2023' },
+      { id: 2, name: 'University Research Fund', amount: '$50,000', year: '2022' },
+    ]
+  };
 
- if (error.response?.data?.errors) {
- const validationErrors: Record<string, string> = {};
- error.response.data.errors.forEach((err: any) => {
- validationErrors[err.field] = err.message;
- });
- setErrors(validationErrors);
- }
- } finally {
- setLoading(false);
- }
- };
+  const mockProgress = {
+    lectureStats: { current: 85, total: 100 },
+    certifications: [
+      { id: 1, title: 'Advanced Pedagogical Methods', provider: 'Teaching Excellence Center', year: '2024' },
+      { id: 2, title: 'AI in Education Certification', provider: 'EdTech Institute', year: '2023' },
+      { id: 3, title: 'Research Methodology Workshop', provider: 'Academic Development Unit', year: '2023' }
+    ]
+  };
 
- const handlePasswordSubmit = async (e: React.FormEvent) => {
- e.preventDefault();
- setErrors({});
+  const mockAchievements = [
+    { id: 1, title: 'Best Teacher Award', description: 'Excellence in undergraduate teaching', year: '2023' },
+    { id: 2, title: 'Research Excellence Award', description: 'Outstanding contribution to research', year: '2022' },
+    { id: 3, title: 'Innovation in Education', description: 'Implementation of AI-based learning tools', year: '2021' }
+  ];
 
- const newErrors: Record<string, string> = {};
- if (!passwordForm.currentPassword) {
- newErrors.currentPassword = "Current password is required";
- }
- if (!passwordForm.newPassword) {
- newErrors.newPassword = "New password is required";
- }
- if (passwordForm.newPassword !== passwordForm.confirmPassword) {
- newErrors.confirmPassword = "Passwords do not match";
- }
- if (passwordForm.newPassword.length < 8) {
- newErrors.newPassword = "Password must be at least 8 characters long";
- }
+  return (
+    <div className={`font-poppins min-h-screen pb-12 transition-colors duration-300 ${getThemedClasses(isDark, "bg-gray-50", "bg-[#0B0F19]")}`}>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        
+        {/* Back Navigation & Top Actions */}
+        <div className="flex items-center justify-between mb-6">
+          <Link to="/dashboard" className="flex items-center text-sm font-medium text-gray-600 dark:text-gray-300 hover:text-primary-600 dark:hover:text-primary-400 transition-colors">
+            <ArrowLeftIcon className="w-4 h-4 mr-1" />
+            Back to Dashboard
+          </Link>
+          <div className="flex items-center space-x-3">
+            <button 
+              onClick={() => setChangingPassword(true)}
+              className="flex items-center px-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 shadow-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            >
+              <KeyIcon className="w-4 h-4 mr-2" />
+              Change Password
+            </button>
+            <button 
+              onClick={() => setEditing(true)}
+              className="flex items-center px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-xl text-sm font-medium shadow-sm transition-colors"
+            >
+              <PencilIcon className="w-4 h-4 mr-2" />
+              Edit Profile
+            </button>
+          </div>
+        </div>
 
- if (Object.keys(newErrors).length > 0) {
- setErrors(newErrors);
- return;
- }
+        {/* Profile Card Header */}
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700/50 mb-8 p-8 transition-colors">
+          <div className="flex flex-col md:flex-row items-center md:items-start md:space-x-8">
+            
+            {/* Avatar */}
+            <div className="relative mb-6 md:mb-0">
+              <div className="w-32 h-32 rounded-full overflow-hidden border-4 border-white dark:border-gray-800 shadow-md">
+                {profile?.profilePic ? (
+                  <img src={profile.profilePic} alt={displayName} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full bg-primary-600 flex items-center justify-center">
+                    <UserIcon className="w-16 h-16 text-white" />
+                  </div>
+                )}
+              </div>
+              {/* Online Dot */}
+              <div className="absolute bottom-2 right-2 w-5 h-5 bg-green-500 border-2 border-white dark:border-gray-800 rounded-full shadow-sm"></div>
+            </div>
 
- try {
- setLoading(true);
- const response = await apiService.changePassword({
- currentPassword: passwordForm.currentPassword,
- newPassword: passwordForm.newPassword,
- confirmPassword: passwordForm.confirmPassword,
- });
+            {/* Profile Info */}
+            <div className="flex-1 text-center md:text-left">
+              <div className="flex flex-col md:flex-row md:justify-between md:items-start mb-4">
+                <div>
+                  <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">{displayName}</h1>
+                  <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 mb-4">
+                    <span className="px-3 py-1 bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 text-xs font-semibold rounded-full border border-purple-100 dark:border-purple-800">{title}</span>
+                    <span className="px-3 py-1 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 text-xs font-semibold rounded-full border border-blue-100 dark:border-blue-800">{department}</span>
+                    <span className="px-3 py-1 bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300 text-xs font-semibold rounded-full border border-green-100 dark:border-green-800">{experience}</span>
+                  </div>
+                </div>
+                {/* Teaching Rating */}
+                <div className="mt-4 md:mt-0 text-center md:text-right">
+                  <div className="text-3xl font-bold text-purple-600 dark:text-purple-400">{teachingRating}</div>
+                  <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Teaching Rating</div>
+                </div>
+              </div>
 
- if (response.success) {
- setChangingPassword(false);
- setPasswordForm({
- currentPassword: "",
- newPassword: "",
- confirmPassword: "",
- });
- toast.success("Password changed successfully");
- }
- } catch (error: any) {
- const errorMessage =
- error.response?.data?.message || "Failed to change password";
- toast.error(errorMessage);
+              {/* Contact Info Row */}
+              <div className="flex flex-col md:flex-row items-center justify-center md:justify-start gap-6 text-sm text-gray-600 dark:text-gray-300">
+                <div className="flex items-center">
+                  <EnvelopeIcon className="w-4 h-4 mr-2 text-gray-400" />
+                  {email}
+                </div>
+                <div className="flex items-center">
+                  <PhoneIcon className="w-4 h-4 mr-2 text-gray-400" />
+                  {phone}
+                </div>
+                <div className="flex items-center">
+                  <MapPinIcon className="w-4 h-4 mr-2 text-gray-400" />
+                  {room}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
 
- if (error.response?.data?.errors) {
- const validationErrors: Record<string, string> = {};
- error.response.data.errors.forEach((err: any) => {
- validationErrors[err.field] = err.message;
- });
- setErrors(validationErrors);
- }
- } finally {
- setLoading(false);
- }
- };
+        {/* Tabbed Navigation */}
+        <div className="flex justify-center mb-8">
+          <div className="inline-flex bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700/50 p-1">
+            {['Overview', 'My Research', 'My Progress', 'Achievements'].map(tab => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`px-8 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
+                  activeTab === tab 
+                    ? 'bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' 
+                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-50/50 dark:hover:bg-gray-700/50'
+                }`}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+        </div>
 
- const getRoleColor = (role: string) => {
- switch (role) {
- case "student":
- return "bg-blue-500 ";
- case "teacher":
- return "bg-green-500 ";
- case "hod":
- return "bg-purple-500 ";
- case "principal":
- return "bg-red-500 ";
- default:
- return "bg-gray-500 ";
- }
- };
+        {/* Tab Content */}
+        {activeTab === 'Overview' && (
+          <>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+              {/* About Me Card */}
+              <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700/50 p-8">
+                <div className="flex items-center mb-6">
+                  <UserIcon className="w-6 h-6 text-gray-900 dark:text-white mr-2" />
+                  <h2 className="text-xl font-bold text-gray-900 dark:text-white">About Me</h2>
+                </div>
+                <p className="text-gray-600 dark:text-gray-300 leading-relaxed mb-6">
+                  Passionate educator with expertise in machine learning and data science. 
+                  Committed to fostering innovation and critical thinking among students.
+                </p>
+                <div>
+                  <h3 className="text-sm font-bold text-gray-900 dark:text-white mb-2">Specialization</h3>
+                  <div className="text-sm text-gray-600 dark:text-gray-300">
+                    Machine Learning, Data Science
+                  </div>
+                </div>
+              </div>
 
- const getRoleIcon = (role: string) => {
- switch (role) {
- case "student":
- return "🎓";
- case "teacher":
- return "👨‍🏫";
- case "hod":
- return "👨‍💼";
- case "principal":
- return "👨‍💻";
- default:
- return "👤";
- }
- };
+              {/* Education Card */}
+              <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700/50 p-8">
+                <div className="flex items-center mb-6">
+                  <BuildingOfficeIcon className="w-6 h-6 text-gray-900 dark:text-white mr-2" />
+                  <h2 className="text-xl font-bold text-gray-900 dark:text-white">Education</h2>
+                </div>
+                <div className="space-y-6">
+                  <div className="relative pl-6 before:absolute before:left-0 before:top-2 before:w-2 before:h-2 before:bg-purple-400 before:rounded-full before:ring-4 before:ring-purple-50 dark:before:ring-purple-900/20">
+                    <h3 className="font-bold text-gray-900 dark:text-white">Ph.D. in Computer Science</h3>
+                    <div className="text-sm text-gray-500 mt-1">
+                      <div>MIT</div>
+                      <div className="text-xs">2015</div>
+                    </div>
+                  </div>
+                  <div className="relative pl-6 before:absolute before:left-0 before:top-2 before:w-2 before:h-2 before:bg-purple-400 before:rounded-full before:ring-4 before:ring-purple-50 dark:before:ring-purple-900/20">
+                    <h3 className="font-bold text-gray-900 dark:text-white">M.S. in Computer Science</h3>
+                    <div className="text-sm text-gray-500 mt-1">
+                      <div>Stanford University</div>
+                      <div className="text-xs">2010</div>
+                    </div>
+                  </div>
+                  <div className="relative pl-6 before:absolute before:left-0 before:top-2 before:w-2 before:h-2 before:bg-purple-400 before:rounded-full before:ring-4 before:ring-purple-50 dark:before:ring-purple-900/20">
+                    <h3 className="font-bold text-gray-900 dark:text-white">B.S. in Computer Engineering</h3>
+                    <div className="text-sm text-gray-500 mt-1">
+                      <div>UC Berkeley</div>
+                      <div className="text-xs">2008</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
 
- const formatDate = (dateString?: string) => {
- if (!dateString) return "Unknown";
- return new Date(dateString).toLocaleDateString("en-US", {
- year: "numeric",
- month: "long",
- day: "numeric",
- hour: "2-digit",
- minute: "2-digit",
- });
- };
+            {/* Current Semester Overview Footer */}
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700/50 p-8">
+              <div className="flex items-center mb-6">
+                <svg className="w-6 h-6 text-gray-900 dark:text-white mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                </svg>
+                <h2 className="text-xl font-bold text-gray-900 dark:text-white">Current Semester Overview</h2>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-6 divide-x divide-gray-100 dark:divide-gray-700/50">
+                <div className="text-center px-4">
+                  <div className="text-4xl font-bold text-purple-600 dark:text-purple-400 mb-2">3</div>
+                  <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Courses Teaching</div>
+                </div>
+                <div className="text-center px-4">
+                  <div className="text-4xl font-bold text-blue-600 dark:text-blue-400 mb-2">145</div>
+                  <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Students</div>
+                </div>
+                <div className="text-center px-4">
+                  <div className="text-4xl font-bold text-green-600 dark:text-green-400 mb-2">4.7</div>
+                  <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Avg Rating</div>
+                </div>
+                <div className="text-center px-4">
+                  <div className="text-4xl font-bold text-orange-500 dark:text-orange-400 mb-2">85%</div>
+                  <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Syllabus Complete</div>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
 
- if (loading && !profile) {
- return (
- <div className={`font-poppins min-h-screen flex justify-center items-center ${
- getThemedClasses(
- isDark,
- "bg-gray-50",
- "bg-gray-900"
- )
- }`}>
- <div className="flex flex-col items-center space-y-4">
- <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary border-t-transparent"></div>
- <p className={getThemedClasses(isDark, "text-gray-600", "text-gray-300")}> 
- Loading profile...
- </p>
- </div>
- </div>
- );
- }
+        {activeTab === 'My Research' && (
+          <div className="space-y-8 animate-in fade-in zoom-in-95 duration-500">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {/* Publications */}
+              <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700/50 p-8">
+                <div className="flex items-center mb-6">
+                  <DocumentTextIcon className="w-6 h-6 text-gray-900 dark:text-white mr-2" />
+                  <h2 className="text-xl font-bold text-gray-900 dark:text-white">Publications</h2>
+                </div>
+                <div className="space-y-6">
+                  {mockResearch.publications.map(pub => (
+                    <div key={pub.id} className="relative pl-6 border-l-2 border-primary-200 dark:border-primary-900/50">
+                      <h3 className="text-sm font-bold text-gray-900 dark:text-white leading-tight mb-1">{pub.title}</h3>
+                      <p className="text-xs text-gray-500 mb-2">{pub.source}</p>
+                      <span className={`inline-block px-3 py-1 text-[10px] font-semibold rounded-full ${
+                        pub.status === 'Published' 
+                          ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
+                          : 'bg-yellow-500 text-white dark:bg-yellow-600/90 dark:text-yellow-50'
+                      }`}>
+                        {pub.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
 
- // Don't render if no token and no user (will redirect)
- const token = localStorage.getItem("accessToken");
- if (!token && !user) {
- return (
- <div className={`font-poppins min-h-screen flex justify-center items-center ${getThemedClasses(
- isDark,
- "bg-gray-50",
- "bg-gray-900"
- )}`}
- >
- <div
- className={`${getThemedClasses(
- isDark,
- "text-gray-600",
- "text-gray-300"
- )}`}
- >
- Redirecting to login...
- </div>
- </div>
- );
- }
+              {/* Research Projects */}
+              <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700/50 p-8">
+                <div className="flex items-center mb-6">
+                  <GlobeAltIcon className="w-6 h-6 text-gray-900 dark:text-white mr-2" />
+                  <h2 className="text-xl font-bold text-gray-900 dark:text-white">Research Projects</h2>
+                </div>
+                <div className="space-y-6">
+                  {mockResearch.projects.map(proj => (
+                    <div key={proj.id} className="relative pl-6 before:absolute before:left-0 before:top-2 before:w-3 before:h-3 before:border-2 before:border-gray-300 dark:before:border-gray-600 before:bg-transparent before:rounded-full">
+                      <h3 className="text-sm font-bold text-gray-900 dark:text-white leading-tight mb-1">{proj.name}</h3>
+                      <p className="text-xs text-gray-500 mb-2">{proj.year}</p>
+                      <div className="flex items-center space-x-3">
+                        <span className={`inline-block px-3 py-1 text-[10px] font-semibold rounded-full ${
+                          proj.status === 'Active'
+                            ? 'bg-purple-700 text-white dark:bg-purple-600 dark:text-purple-50'
+                            : 'bg-yellow-400 text-gray-900 dark:bg-yellow-500 dark:text-gray-950'
+                        }`}>
+                          {proj.status}
+                        </span>
+                        <span className="text-xs font-medium text-gray-500 dark:text-gray-400">{proj.amount}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
 
- const isEmployee = profile?.role === 'teacher' || profile?.role === 'hod' || profile?.role === 'principal';
- const idLabel = isEmployee ? "Employee ID" : "Roll Number";
+            {/* Research Grants */}
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700/50 p-8">
+              <div className="flex items-center mb-6">
+                <TrophyIcon className="w-6 h-6 text-gray-900 dark:text-white mr-2" />
+                <h2 className="text-xl font-bold text-gray-900 dark:text-white">Research Grants</h2>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {mockResearch.grants.map(grant => (
+                  <div key={grant.id} className="bg-blue-50/50 dark:bg-blue-900/10 rounded-xl p-6 border border-blue-100 dark:border-blue-900/30 flex flex-col justify-between h-32">
+                    <h3 className="text-base font-bold text-gray-900 dark:text-white">{grant.name}</h3>
+                    <div className="flex justify-between items-end mt-4">
+                      <span className="text-2xl font-bold text-green-600 dark:text-green-400">{grant.amount}</span>
+                      <span className="text-sm font-medium text-gray-400">{grant.year}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
- return (
- <div className={`font-poppins min-h-screen pb-12 mt-32 ${getThemedClasses(isDark, "bg-gray-50", "bg-[#0B0F19]")}`}>
- {/* Premium Banner */}
- {/* <div className={`h-64 w-full relative overflow-hidden ${
- profile?.role === "student" ? "bg-blue-600" :
- profile?.role === "teacher" ? "bg-emerald-600" :
- profile?.role === "hod" ? "bg-purple-600" :
- profile?.role === "principal" ? "bg-rose-600" :
- "bg-gray-700"
- }`}>
- <div className="absolute inset-0 opacity-20 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPjxyZWN0IHdpZHRoPSI4IiBoZWlnaHQ9IjgiIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4xIi8+PC9zdmc+')] mix-blend-overlay"></div> */}
- {/* Animated Orbs */}
- {/* <div className="absolute -top-20 -left-20 w-72 h-72 bg-white/10 rounded-full blur-3xl animate-pulse"></div>
- <div className="absolute -bottom-20 -right-20 w-96 h-96 bg-black/20 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }}></div>
- </div> */}
+        {activeTab === 'My Progress' && (
+          <div className="space-y-8 animate-in fade-in zoom-in-95 duration-500">
+            {/* Semester Progress Card */}
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700/50 p-8">
+              <div className="flex items-center mb-6">
+                <ClockIcon className="w-6 h-6 text-gray-900 dark:text-white mr-2" />
+                <h2 className="text-xl font-bold text-gray-900 dark:text-white">Semester Progress</h2>
+              </div>
+              
+              {/* Progress Bar Section */}
+              <div className="mb-8">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-sm font-bold text-gray-700 dark:text-gray-300">Lecture Completion</span>
+                  <span className="text-sm font-bold text-gray-500 dark:text-gray-400">{mockProgress.lectureStats.current}/{mockProgress.lectureStats.total}</span>
+                </div>
+                <div className="w-full h-4 flex rounded-full overflow-hidden">
+                  <div 
+                    className="bg-purple-700 dark:bg-purple-600 h-full" 
+                    style={{ width: `${(mockProgress.lectureStats.current / mockProgress.lectureStats.total) * 100}%` }}
+                  ></div>
+                  <div 
+                    className="bg-yellow-400 dark:bg-yellow-500 h-full" 
+                    style={{ width: `${100 - ((mockProgress.lectureStats.current / mockProgress.lectureStats.total) * 100)}%` }}
+                  ></div>
+                </div>
+              </div>
 
- <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-28 relative z-10 w-full animate-in fade-in slide-in-bg-bottom-8 duration-700">
- {/* Profile Header Card */}
- <div className={`mb-8 ${getThemedClasses(isDark, "bg-white/80 backdrop-blur-2xl shadow-xl ring-1 ring-black/5", "bg-gray-800/80 backdrop-blur-2xl shadow-2xl ring-1 ring-white/10")} rounded-3xl p-6 sm:p-10 transition-all duration-300`}>
- <div className="flex flex-col md:flex-row items-center md:items-start justify-between gap-8">
- <div className="flex flex-col md:flex-row items-center gap-8 text-center md:text-left">
- <div className="relative group">
- <div className={`h-36 w-36 rounded-2xl overflow-hidden flex items-center justify-center shadow-2xl ring-4 ${getThemedClasses(isDark, "ring-white", "ring-gray-800")} transition-transform duration-500 group-hover:scale-105 group-hover:rotate-2 group-hover:shadow-[0_20px_50px_rgba(8,_112,_184,_0.7)]`}>
- {profile?.profilePic ? (
- <img 
- src={profile.profilePic} 
- alt={profile.username} 
- className="h-full w-full object-cover"
- referrerPolicy="no-referrer"
- onError={(e) => {
- const target = e.target as HTMLImageElement;
- if (!target.src.includes('ui-avatars.com')) {
- target.src = `https://ui-avatars.com/api/?name=${profile?.username || "User"}&background=random`;
- }
- }}
- />
- ) : (
- <div className={`h-full w-full ${
- profile?.role === "student" ? "bg-blue-500" :
- profile?.role === "teacher" ? "bg-emerald-500" :
- profile?.role === "hod" ? "bg-purple-500" :
- "bg-gray-500"
- } flex items-center justify-center`}>
- <span className="text-5xl">{getRoleIcon(profile?.role || "unknown")}</span>
- </div>
- )}
- </div>
- <div className={`absolute -bottom-2 -right-2 h-10 w-10 bg-green-500 rounded-full ring-4 ${getThemedClasses(isDark, "ring-white", "ring-gray-800")} flex items-center justify-center shadow-xl`}>
- <div className="h-3 w-3 bg-white rounded-full animate-pulse"></div>
- </div>
- </div>
- 
- <div className="pt-2 md:pt-4">
- <h1 className={`text-3xl md:text-4xl font-semibold tracking-wide tracking-tight mb-3 ${getThemedClasses(isDark, "text-gray-900", "text-white")}`}>
- {profile?.username || "User Profile"}
- </h1>
- <div className="flex flex-wrap items-center justify-center md:justify-start gap-4">
- <span className={`inline-flex items-center px-4 py-1.5 rounded-full text-sm font-medium shadow-sm ${
- getThemedClasses(
- isDark,
- "bg-primary-50 text-primary-700 ring-1 ring-primary-200",
- "bg-primary-900/40 text-primary-300 ring-1 ring-primary-700/50"
- )
- }`}>
- <ShieldCheckIcon className="h-4 w-4 mr-2" />
- {profile?.role ? profile.role.charAt(0).toUpperCase() + profile.role.slice(1) : "Unknown Role"}
- </span>
- <span className={`text-sm font-medium ${getThemedClasses(isDark, "text-gray-500", "text-gray-400")}`}>
- Joined {profile?.createdAt ? new Date(profile.createdAt).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) : "Unknown"}
- </span>
- </div>
- </div>
- </div>
+              {/* Metrics Row */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="bg-purple-50 dark:bg-purple-900/10 rounded-xl p-6 flex flex-col items-center justify-center border border-purple-100/50 dark:border-purple-800/30">
+                  <span className="text-3xl font-bold text-purple-600 dark:text-purple-400 mb-1">3</span>
+                  <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Active Courses</span>
+                </div>
+                <div className="bg-blue-50 dark:bg-blue-900/10 rounded-xl p-6 flex flex-col items-center justify-center border border-blue-100/50 dark:border-blue-800/30">
+                  <span className="text-3xl font-bold text-blue-600 dark:text-blue-400 mb-1">145</span>
+                  <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Students Mentoring</span>
+                </div>
+                <div className="bg-green-50 dark:bg-green-900/10 rounded-xl p-6 flex flex-col items-center justify-center border border-green-100/50 dark:border-green-800/30">
+                  <span className="text-3xl font-bold text-green-600 dark:text-green-400 mb-1">4.7</span>
+                  <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Teaching Rating</span>
+                </div>
+              </div>
+            </div>
 
- <div className="flex flex-wrap items-center justify-center gap-4 w-full md:w-auto mt-4 md:mt-0">
- <button
- onClick={() => setChangingPassword(true)}
- className={`flex-1 md:flex-none inline-flex items-center justify-center px-6 py-3 rounded-xl text-sm font-medium transition-all duration-300 shadow-sm ${
- getThemedClasses(
- isDark,
- "bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 hover:shadow-md hover:-translate-y-0.5",
- "bg-gray-800/80 text-gray-200 border border-gray-700 hover:bg-gray-700 hover:shadow-md hover:-translate-y-0.5"
- )
- }`}
- >
- <KeyIcon className="h-4 w-4 mr-2 text-gray-400" />
- Change Password
- </button>
- 
- {!editing ? (
- <button
- onClick={() => setEditing(true)}
- className="flex-1 md:flex-none inline-flex items-center justify-center px-6 py-3 rounded-xl text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 transition-all duration-300 shadow-lg hover:shadow-xl hover:-translate-y-0.5 ring-1 ring-primary-500/50"
- >
- <PencilIcon className="h-4 w-4 mr-2 text-white/80" />
- Edit Profile
- </button>
- ) : (
- <div className="flex flex-col sm:flex-row flex-1 md:flex-none gap-3 w-full md:w-auto">
- <button
- onClick={() => {
- setEditing(false);
- setEditForm({
- username: profile?.username || "",
- rollNumber: profile?.rollNumber || "",
- });
- setErrors({});
- }}
- className={`flex-1 inline-flex items-center justify-center px-6 py-3 rounded-xl text-sm font-medium transition-all duration-300 shadow-sm ${
- getThemedClasses(
- isDark,
- "bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 hover:-translate-y-0.5",
- "bg-gray-800/80 text-gray-200 border border-gray-700 hover:bg-gray-700 hover:-translate-y-0.5"
- )
- }`}
- >
- <XMarkIcon className="h-4 w-4 mr-2 text-gray-400" />
- Cancel
- </button>
- <button
- onClick={handleEditSubmit}
- disabled={loading}
- className="flex-1 inline-flex items-center justify-center px-6 py-3 rounded-xl text-sm font-medium text-white bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 shadow-lg hover:shadow-xl hover:-translate-y-0.5 ring-1 ring-emerald-500/50"
- >
- <CheckIcon className="h-4 w-4 mr-2 text-white/80" />
- {loading ? "Saving..." : "Save Changes"}
- </button>
- </div>
- )}
- </div>
- </div>
- </div>
+            {/* Professional Development */}
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700/50 p-8">
+              <div className="flex items-center mb-6">
+                <ArrowTrendingUpIcon className="w-6 h-6 text-gray-900 dark:text-white mr-2" />
+                <h2 className="text-xl font-bold text-gray-900 dark:text-white">Professional Development</h2>
+              </div>
+              <div className="space-y-4">
+                {mockProgress.certifications.map(cert => (
+                  <div key={cert.id} className="bg-purple-50/50 dark:bg-purple-900/10 border border-purple-100/50 dark:border-purple-900/30 rounded-xl p-6 flex justify-between items-center">
+                    <div>
+                      <h3 className="text-base font-bold text-gray-900 dark:text-white mb-1">{cert.title}</h3>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">{cert.provider}</p>
+                    </div>
+                    <span className="inline-flex items-center justify-center px-4 py-1 bg-yellow-400 text-gray-900 dark:bg-yellow-500 dark:text-gray-950 text-xs font-bold rounded-full">
+                      {cert.year}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
- {/* Profile Content */}
- <div className={`will-change-transform ${
- getThemedClasses(
- isDark,
- "bg-white/70 backdrop-blur-2xl shadow-xl ring-1 ring-black/5",
- "bg-gray-800/70 backdrop-blur-2xl shadow-2xl ring-1 ring-white/10"
- )
- } rounded-3xl p-6 sm:p-10 transition-all duration-500 animate-in fade-in slide-in-bg-bottom-8`} style={{ animationDelay: '150ms' }}>
- {editing ? (
- <form onSubmit={handleEditSubmit} className="space-y-8 animate-in fade-in zoom-in-95 duration-300">
- <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
- <div>
- <label
- htmlFor="username"
- className={`block text-sm font-medium mb-2 ${
- getThemedClasses(isDark, "text-gray-700", "text-gray-300")
- }`}
- >
- Username
- </label>
- <div className="relative group">
- <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none transition-colors group-focus-within:text-primary-500">
- <UserIcon className={`h-5 w-5 ${
- getThemedClasses(isDark, "text-gray-400", "text-gray-500")
- } group-focus-within:text-primary-500 transition-colors`} />
- </div>
- <input
- type="text"
- id="username"
- value={editForm.username}
- onChange={(e) => setEditForm({ ...editForm, username: e.target.value })}
- className={`block w-full pl-12 pr-4 py-4 rounded-xl border-0 ring-1 ring-inset transition-all duration-300 ${
- getThemedClasses(
- isDark,
- "bg-white ring-gray-200 text-gray-900 focus:ring-2 focus:ring-primary-500 shadow-sm hover:ring-gray-300",
- "bg-gray-900/50 ring-gray-700 text-white focus:ring-2 focus:ring-primary-500 shadow-inner hover:ring-gray-600"
- )
- } ${errors.username ? "ring-2 ring-red-500" : ""}`}
- placeholder="Enter username"
- />
- </div>
- {errors.username && (
- <p className="mt-2 text-sm font-medium text-red-500 animate-in slide-in-bg-left-1">{errors.username}</p>
- )}
- </div>
+        {activeTab === 'Achievements' && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 animate-in fade-in zoom-in-95 duration-500">
+            {mockAchievements.map(achievement => (
+              <div key={achievement.id} className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700/50 p-8 flex flex-col items-center text-center hover:shadow-md transition-shadow">
+                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-yellow-400 to-orange-500 flex items-center justify-center mb-6 shadow-sm">
+                  <AwardIcon className="w-8 h-8 text-white" strokeWidth={2} />
+                </div>
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">{achievement.title}</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-6 flex-grow">{achievement.description}</p>
+                <div className="px-4 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 text-xs font-bold rounded-full border border-indigo-100 dark:border-indigo-800">
+                  {achievement.year}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
- <div>
- <label
- htmlFor="rollNumber"
- className={`block text-sm font-medium mb-2 ${
- getThemedClasses(isDark, "text-gray-700", "text-gray-300")
- }`}
- >
- {idLabel}
- </label>
- <div className="relative group">
- <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none transition-colors group-focus-within:text-primary-500">
- <IdentificationIcon className={`h-5 w-5 ${
- getThemedClasses(isDark, "text-gray-400", "text-gray-500")
- } group-focus-within:text-primary-500 transition-colors`} />
- </div>
- <input
- type="text"
- id="rollNumber"
- value={editForm.rollNumber}
- onChange={(e) => setEditForm({ ...editForm, rollNumber: e.target.value })}
- className={`block w-full pl-12 pr-4 py-4 rounded-xl border-0 ring-1 ring-inset transition-all duration-300 ${
- getThemedClasses(
- isDark,
- "bg-white ring-gray-200 text-gray-900 focus:ring-2 focus:ring-primary-500 shadow-sm hover:ring-gray-300",
- "bg-gray-900/50 ring-gray-700 text-white focus:ring-2 focus:ring-primary-500 shadow-inner hover:ring-gray-600"
- )
- } ${errors.rollNumber ? "ring-2 ring-red-500" : ""}`}
- placeholder={`Enter ${idLabel.toLowerCase()}`}
- />
- </div>
- {errors.rollNumber && (
- <p className="mt-2 text-sm font-medium text-red-500 animate-in slide-in-bg-left-1">{errors.rollNumber}</p>
- )}
- </div>
- </div>
- </form>
- ) : (
- <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in zoom-in-95 duration-500">
- <ProfileCard
- icon={<UserIcon className="h-6 w-6 text-blue-500" />}
- title="Username"
- value={profile?.username || "N/A"}
- isDark={isDark}
- bgClass=" dark:"
- />
- <ProfileCard
- icon={<IdentificationIcon className="h-6 w-6 text-emerald-500" />}
- title={idLabel}
- value={profile?.rollNumber || "N/A"}
- isDark={isDark}
- bgClass="bg-emerald-500/10 dark:bg-emerald-500/20"
- />
- <ProfileCard
- icon={<ShieldCheckIcon className="h-6 w-6 text-purple-500" />}
- title="Role"
- value={profile?.role ? profile.role.charAt(0).toUpperCase() + profile.role.slice(1) : "N/A"}
- isDark={isDark}
- bgClass=" dark:"
- />
- <ProfileCard
- icon={<CalendarIcon className="h-6 w-6 text-indigo-500" />}
- title="Member Since"
- value={profile?.createdAt ? formatDate(profile.createdAt) : "N/A"}
- isDark={isDark}
- bgClass=" dark:"
- />
- <ProfileCard
- icon={<ClockIcon className="h-6 w-6 text-amber-500" />}
- title="Last Updated"
- value={profile?.updatedAt ? formatDate(profile.updatedAt) : "N/A"}
- isDark={isDark}
- bgClass="bg-amber-500/10 dark:bg-amber-500/20"
- />
- {profile?.class && (
- <ProfileCard
- icon={<BuildingLibraryIcon className="h-6 w-6 text-rose-500" />}
- title="Department"
- value={profile.class.department || "N/A"}
- isDark={isDark}
- bgClass="bg-rose-500/10 dark:bg-rose-500/20"
- />
- )}
- </div>
- )}
- </div>
- </div>
+        {/* Existing Update Profile Modal */}
+        {editing && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className={`w-full max-w-md p-8 rounded-3xl shadow-2xl ${getThemedClasses(isDark, "bg-white", "bg-gray-800")}`}>
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-bold dark:text-white">Edit Profile</h3>
+                <button onClick={() => setEditing(false)} className="text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 p-2 rounded-full">
+                  <XMarkIcon className="w-5 h-5" />
+                </button>
+              </div>
+              <form onSubmit={handleEditSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1 dark:text-gray-300">Username</label>
+                  <input 
+                    type="text" 
+                    value={editForm.username} 
+                    onChange={e => setEditForm({...editForm, username: e.target.value})}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-primary-500 focus:border-primary-500" 
+                  />
+                  {errors.username && <p className="text-sm text-red-500 mt-1">{errors.username}</p>}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1 dark:text-gray-300">Employee ID / Roll Number</label>
+                  <input 
+                    type="text" 
+                    value={editForm.rollNumber} 
+                    onChange={e => setEditForm({...editForm, rollNumber: e.target.value})}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-primary-500 focus:border-primary-500" 
+                  />
+                  {errors.rollNumber && <p className="text-sm text-red-500 mt-1">{errors.rollNumber}</p>}
+                </div>
+                <div className="flex justify-end gap-3 pt-4 border-t dark:border-gray-700">
+                  <button type="button" onClick={() => setEditing(false)} className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-white rounded-lg">Cancel</button>
+                  <button type="submit" className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700">Save Changes</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
 
- {/* Password Change Modal */}
- {changingPassword && (
- <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
- <div className={`w-full max-w-md rounded-3xl shadow-2xl animate-in zoom-in-95 slide-in-bg-bottom-4 duration-300 ${
- getThemedClasses(
- isDark,
- "bg-white ring-1 ring-black/5",
- "bg-gray-800 ring-1 ring-white/10"
- )
- }`}>
- <div className="p-8">
- <div className="flex items-center justify-between mb-8">
- <div className="flex items-center gap-4">
- <div className="h-12 w-12 rounded-2xl bg-primary-500/10 flex items-center justify-center rotate-3 border border-primary-500/20 shadow-sm">
- <KeyIcon className="h-6 w-6 text-primary-500 -rotate-3" />
- </div>
- <h3 className={`text-2xl font-semibold tracking-wide tracking-tight ${
- getThemedClasses(isDark, "text-gray-900", "text-white")
- }`}>
- Change Password
- </h3>
- </div>
- <button
- onClick={() => {
- setChangingPassword(false);
- setPasswordForm({
- currentPassword: "",
- newPassword: "",
- confirmPassword: "",
- });
- setErrors({});
- }}
- className={`rounded-full p-2.5 transition-all duration-200 ${
- getThemedClasses(
- isDark,
- "text-gray-400 hover:text-gray-600 hover:bg-gray-100",
- "text-gray-500 hover:text-gray-300 hover:bg-gray-700"
- )
- }`}
- >
- <XMarkIcon className="h-5 w-5" />
- </button>
- </div>
+        {/* Existing Password Modal */}
+        {changingPassword && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className={`w-full max-w-md p-8 rounded-3xl shadow-2xl ${getThemedClasses(isDark, "bg-white", "bg-gray-800")}`}>
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-bold dark:text-white">Change Password</h3>
+                <button onClick={() => setChangingPassword(false)} className="text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 p-2 rounded-full">
+                  <XMarkIcon className="w-5 h-5" />
+                </button>
+              </div>
+              <form onSubmit={handlePasswordSubmit} className="space-y-4">
+                <PasswordInput 
+                  id="currentPassword" label="Current Password" value={passwordForm.currentPassword} 
+                  onChange={e => setPasswordForm({...passwordForm, currentPassword: e.target.value})} 
+                  showPassword={showCurrentPassword} onTogglePassword={() => setShowCurrentPassword(!showCurrentPassword)} 
+                  error={errors.currentPassword} isDark={isDark} 
+                />
+                <PasswordInput 
+                  id="newPassword" label="New Password" value={passwordForm.newPassword} 
+                  onChange={e => setPasswordForm({...passwordForm, newPassword: e.target.value})} 
+                  showPassword={showNewPassword} onTogglePassword={() => setShowNewPassword(!showNewPassword)} 
+                  error={errors.newPassword} isDark={isDark} 
+                />
+                <PasswordInput 
+                  id="confirmPassword" label="Confirm Password" value={passwordForm.confirmPassword} 
+                  onChange={e => setPasswordForm({...passwordForm, confirmPassword: e.target.value})} 
+                  showPassword={showConfirmPassword} onTogglePassword={() => setShowConfirmPassword(!showConfirmPassword)} 
+                  error={errors.confirmPassword} isDark={isDark} 
+                />
+                <div className="flex justify-end gap-3 pt-4 border-t dark:border-gray-700">
+                  <button type="button" onClick={() => setChangingPassword(false)} className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-white rounded-lg">Cancel</button>
+                  <button type="submit" className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700">Change Password</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
 
- <form onSubmit={handlePasswordSubmit} className="space-y-6">
- <PasswordInput
- id="currentPassword"
- label="Current Password"
- value={passwordForm.currentPassword}
- onChange={(e) => setPasswordForm({
- ...passwordForm,
- currentPassword: e.target.value,
- })}
- showPassword={showCurrentPassword}
- onTogglePassword={() => setShowCurrentPassword(!showCurrentPassword)}
- error={errors.currentPassword}
- isDark={isDark}
- />
-
- <PasswordInput
- id="newPassword"
- label="New Password"
- value={passwordForm.newPassword}
- onChange={(e) => setPasswordForm({
- ...passwordForm,
- newPassword: e.target.value,
- })}
- showPassword={showNewPassword}
- onTogglePassword={() => setShowNewPassword(!showNewPassword)}
- error={errors.newPassword}
- isDark={isDark}
- />
-
- <PasswordInput
- id="confirmPassword"
- label="Confirm Password"
- value={passwordForm.confirmPassword}
- onChange={(e) => setPasswordForm({
- ...passwordForm,
- confirmPassword: e.target.value,
- })}
- showPassword={showConfirmPassword}
- onTogglePassword={() => setShowConfirmPassword(!showConfirmPassword)}
- error={errors.confirmPassword}
- isDark={isDark}
- />
-
- <div className="flex justify-end gap-3 pt-6 mt-8 border-t border-gray-100 dark:border-gray-700/50">
- <button
- type="button"
- onClick={() => {
- setChangingPassword(false);
- setPasswordForm({
- currentPassword: "",
- newPassword: "",
- confirmPassword: "",
- });
- setErrors({});
- }}
- className={`px-6 py-3 rounded-xl text-sm font-medium transition-all duration-300 ${
- getThemedClasses(
- isDark,
- "bg-white text-gray-700 hover:bg-gray-100",
- "bg-gray-800 text-gray-300 hover:bg-gray-700"
- )
- }`}
- >
- Cancel
- </button>
- <button
- type="submit"
- disabled={loading}
- className="px-6 py-3 rounded-xl text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 shadow-md hover:shadow-lg hover:-translate-y-0.5 disabled:opacity-50 disabled:hover:translate-y-0 transition-all duration-300 ring-1 ring-primary-500/50"
- >
- {loading ? "Changing..." : "Change Password"}
- </button>
- </div>
- </form>
- </div>
- </div>
- </div>
- )}
- </div>
- );
+      </div>
+    </div>
+  );
 };
 
-// Profile Card Component
-interface ProfileCardProps {
- icon: React.ReactNode;
- title: string;
- value: string;
- isDark: boolean;
- bgClass?: string;
-}
-
-const ProfileCard: React.FC<ProfileCardProps> = ({ icon, title, value, isDark, bgClass = "bg-primary-500/10" }) => {
- return (
- <div className={`group rounded-2xl p-6 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl ${
- getThemedClasses(
- isDark,
- "bg-white border border-gray-100 shadow-sm",
- "bg-gray-800/80 border border-gray-700/50 shadow-md"
- )
- }`}>
- <div className="flex items-center gap-4 mb-4">
- <div className={`p-3 rounded-xl ${bgClass} transition-all duration-300 group-hover:scale-110`}>
- {icon}
- </div>
- <h3 className={`text-xs font-medium tracking-widest uppercase ${
- getThemedClasses(isDark, "text-gray-500", "text-gray-400")
- }`}>
- {title}
- </h3>
- </div>
- <p className={`text-2xl font-semibold tracking-wide tracking-tight pl-1 ${
- getThemedClasses(isDark, "text-gray-900", "text-white")
- }`}>
- {value}
- </p>
- </div>
- );
-};
-
-// Password Input Component
 interface PasswordInputProps {
- id: string;
- label: string;
- value: string;
- onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
- showPassword: boolean;
- onTogglePassword: () => void;
- error?: string;
- isDark: boolean;
+  id: string;
+  label: string;
+  value: string;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  showPassword: boolean;
+  onTogglePassword: () => void;
+  error?: string;
+  isDark: boolean;
 }
 
-const PasswordInput: React.FC<PasswordInputProps> = ({
- id,
- label,
- value,
- onChange,
- showPassword,
- onTogglePassword,
- error,
- isDark,
-}) => {
- return (
- <div>
- <label
- htmlFor={id}
- className={`block text-sm font-medium mb-2 ${
- getThemedClasses(isDark, "text-gray-700", "text-gray-300")
- }`}
- >
- {label}
- </label>
- <div className="relative group">
- <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none transition-colors group-focus-within:text-primary-500">
- <LockClosedIcon className={`h-5 w-5 ${
- getThemedClasses(isDark, "text-gray-400", "text-gray-500")
- } group-focus-within:text-primary-500 transition-colors`} />
- </div>
- <input
- type={showPassword ? "text" : "password"}
- id={id}
- value={value}
- onChange={onChange}
- className={`block w-full pl-12 pr-12 py-3.5 rounded-xl border-0 ring-1 ring-inset transition-all duration-300 ${
- getThemedClasses(
- isDark,
- "bg-white ring-gray-200 text-gray-900 focus:ring-2 focus:ring-primary-500 shadow-sm hover:ring-gray-300",
- "bg-gray-900/50 ring-gray-700 text-white focus:ring-2 focus:ring-primary-500 shadow-inner hover:ring-gray-600"
- )
- } ${error ? "ring-2 ring-red-500" : ""}`}
- placeholder={`Enter ${label.toLowerCase()}`}
- />
- <button
- type="button"
- onClick={onTogglePassword}
- className={`absolute inset-y-0 right-0 pr-4 flex items-center transition-colors ${
- getThemedClasses(isDark, "text-gray-400 hover:text-gray-700", "text-gray-500 hover:text-gray-300")
- }`}
- >
- {showPassword ? (
- <EyeSlashIcon className="h-5 w-5" />
- ) : (
- <EyeIcon className="h-5 w-5" />
- )}
- </button>
- </div>
- {error && (
- <p className="mt-2 text-sm font-medium text-red-500 animate-in slide-in-bg-left-1">{error}</p>
- )}
- </div>
- );
-};
+const PasswordInput: React.FC<PasswordInputProps> = ({ id, label, value, onChange, showPassword, onTogglePassword, error, isDark }) => (
+  <div>
+    <label htmlFor={id} className={`block text-sm font-medium mb-1 ${getThemedClasses(isDark, "text-gray-700", "text-gray-300")}`}>{label}</label>
+    <div className="relative">
+      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+        <LockClosedIcon className="h-5 w-5 text-gray-400" />
+      </div>
+      <input type={showPassword ? "text" : "password"} id={id} value={value} onChange={onChange} className="w-full pl-10 pr-10 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-primary-500 focus:border-primary-500" />
+    </div>
+    {error && <p className="text-sm text-red-500 mt-1">{error}</p>}
+  </div>
+);
 
 export default Profile;
